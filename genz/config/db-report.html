@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SplitRx - Database Dump</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            padding: 20px;
+            line-height: 1.6;
+            color: #333;
+        }
+
+        h1 {
+            color: #2c3e50;
+        }
+
+        h2 {
+            color: #34495e;
+            border-bottom: 2px solid #eee;
+            padding-bottom: 10px;
+            margin-top: 40px;
+        }
+
+        .meta {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            border: 1px solid #dee2e6;
+            margin-bottom: 20px;
+        }
+
+        table {
+            border-collapse: collapse;
+            width: 100%;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+
+        th,
+        td {
+            border: 1px solid #dee2e6;
+            padding: 12px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+        }
+
+        tr:nth-child(even) {
+            background-color: #f8f9fa;
+        }
+
+        tr:hover {
+            background-color: #f1f3f5;
+        }
+
+        .empty {
+            color: #868e96;
+            font-style: italic;
+            padding: 10px;
+            border: 1px dashed #dee2e6;
+            border-radius: 4px;
+        }
+
+        code {
+            background: #e9ecef;
+            padding: 2px 4px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: bold;
+            color: white;
+            background-color: #6c757d;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>SplitRx Database Snapshot</h1>
+    <div class="meta">
+        <strong>Generated at:</strong> 2/7/2026, 7:33:03 PM<br>
+        <strong>Database:</strong> defaultdb @ splitrx-db-do-user-29254035-0.j.db.ondigitalocean.com
+    </div>
+    <h2>Table: <code>audit_log</code></h2>
+    <p class="count">Row Count: 4 </p>
+    <table>
+        <thead>
+            <tr>
+                <th>id</th>
+                <th>actor_id</th>
+                <th>actor_role</th>
+                <th>action</th>
+                <th>resource_type</th>
+                <th>resource_id</th>
+                <th>resource_owner_id</th>
+                <th>metadata</th>
+                <th>ip_address</th>
+                <th>user_agent</th>
+                <th>previous_hash</th>
+                <th>entry_hash</th>
+                <th>timestamp</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>81c22f95-1396-4757-81ae-58cb1021e183</td>
+                <td>eceffefb-ac1c-4b8d-bb76-2a299d80491b</td>
+                <td>patient</td>
+                <td>USER_REGISTERED</td>
+                <td>user</td>
+                <td>eceffefb-ac1c-4b8d-bb76-2a299d80491b</td>
+                <td><span style="color: #adb5bd">NULL</span></td>
+                <td>{}</td>
+                <td><span style="color: #adb5bd">NULL</span></td>
+                <td><span style="color: #adb5bd">NULL</span></td>
+                <td>0000000000000000000000000000000000000000000000000000000000000000</td>
+                <td>8eb4259b0c5a0869cf54aaa0d48bf5e2232dd490e2d9fc28213a3471457bcbdc</td>
+                <td>2026-02-07T08:30:08.391Z</td>
+            </tr>
+            <tr>
+                <td>27ac1e40-55d4-4e26-8974-a96a8216b26a</td>
+                <td>eceffefb-ac1c-4b8d-bb76-2a299d80491b</td>
+                <td>patient</td>
+                <td>LOGIN_SUCCESS</td>
+                <td>auth</td>
+                <td>82e4e195-d0ef-4034-97b5-c05f44c0f66a</td>
+                <td><span style="color: #adb5bd">NULL</span></td>
+                <td>{}</td>
+                <td>::1</td>
+                <td>Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0
+                    Safari/537.36</td>
+                <td>8eb4259b0c5a0869cf54aaa0d48bf5e2232dd490e2d9fc28213a3471457bcbdc</td>
+                <td>955075674f09ca501680c40189c4cb1b71245986bc8e556c6f302d5ef5fadb4d</td>
+                <td>2026-02-07T08:30:14.664Z</td>
+            </tr>
+            <tr>
+                <td>62c6bfdd-a2bf-4f70-a875-3f254cdf1538</td>
+                <td>eceffefb-ac1c-4b8d-bb76-2a299d80491b</td>
+                <td>patient</td>
+                <td>PRESCRIPTIONS_VIEWED</td>
+                <td>prescription</td>
+                <td><span style="color: #adb5bd">NULL</span></td>
+                <td>eceffefb-ac1c-4b8d-bb76-2a299d80491b</td>
+                <td>{"count":0}</td>
+                <td><span style="color: #adb5bd">NULL</span></td>
+                <td><span style="color: #adb5bd">NULL</span></td>
+                <td>955075674f09ca501680c40189c4cb1b71245986bc8e556c6f302d5ef5fadb4d</td>
+                <td>dc97ae38cefae6f1720de1f5c9f983220ab4bcd335cedf8077a9104c412608fb</td>
+                <td>2026-02-07T08:30:17.606Z</td>
+            </tr>
+            <tr>
+                <td>98cda53a-999c-434f-a5ca-a90b1aac0064</td>
+                <td>eceffefb-ac1c-4b8d-bb76-2a299d80491b</td>
+                <td>patient</td>
+                <td>PRESCRIPTIONS_VIEWED</td>
+                <td>prescription</td>
+                <td><span style="color: #adb5bd">NULL</span></td>
+                <td>eceffefb-ac1c-4b8d-bb76-2a299d80491b</td>
+                <td>{"count":0}</td>
+                <td><span style="color: #adb5bd">NULL</span></td>
+                <td><span style="color: #adb5bd">NULL</span></td>
+                <td>dc97ae38cefae6f1720de1f5c9f983220ab4bcd335cedf8077a9104c412608fb</td>
+                <td>3e6170931f6f5e5066895f87b8e75fe46f9efa1da14fddc686d734dd78eda57c</td>
+                <td>2026-02-07T08:30:19.995Z</td>
+            </tr>
+        </tbody>
+    </table>
+    <h2>Table: <code>consent_records</code></h2>
+    <p class="count">Row Count: 0 </p>
+    <div class="empty">No data in this table.</div>
+    <h2>Table: <code>dispensing_records</code></h2>
+    <p class="count">Row Count: 0 </p>
+    <div class="empty">No data in this table.</div>
+    <h2>Table: <code>prescriptions</code></h2>
+    <p class="count">Row Count: 0 </p>
+    <div class="empty">No data in this table.</div>
+    <h2>Table: <code>sessions</code></h2>
+    <p class="count">Row Count: 1 </p>
+    <table>
+        <thead>
+            <tr>
+                <th>id</th>
+                <th>user_id</th>
+                <th>refresh_token_hash</th>
+                <th>ip_address</th>
+                <th>user_agent</th>
+                <th>device_fingerprint</th>
+                <th>is_active</th>
+                <th>expires_at</th>
+                <th>last_activity</th>
+                <th>created_at</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>82e4e195-d0ef-4034-97b5-c05f44c0f66a</td>
+                <td>eceffefb-ac1c-4b8d-bb76-2a299d80491b</td>
+                <td>6e1fd22978198a09d18565189820938c29b1b9c299b5c51aaee148ebbae242ee</td>
+                <td>::1</td>
+                <td>Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0
+                    Safari/537.36</td>
+                <td>5054414e5f322b58d37a0d090e48018fb60c083ccf6a2079ffd604ae22ed258b</td>
+                <td>✅</td>
+                <td>2026-02-14T08:30:13.425Z</td>
+                <td>2026-02-07T08:30:13.425Z</td>
+                <td>2026-02-07T08:30:13.425Z</td>
+            </tr>
+        </tbody>
+    </table>
+    <h2>Table: <code>users</code></h2>
+    <p class="count">Row Count: 2 </p>
+    <table>
+        <thead>
+            <tr>
+                <th>id</th>
+                <th>email</th>
+                <th>password_hash</th>
+                <th>full_name</th>
+                <th>role</th>
+                <th>public_key</th>
+                <th>private_key_encrypted</th>
+                <th>is_active</th>
+                <th>failed_login_attempts</th>
+                <th>locked_until</th>
+                <th>last_login_at</th>
+                <th>last_login_ip</th>
+                <th>last_login_user_agent</th>
+                <th>created_at</th>
+                <th>updated_at</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>9921b869-f334-4c39-a2a0-f003f3910b33</td>
+                <td>admin@splitrx.com</td>
+                <td>$2b$12$CCk0MBGgneOQnCNTQ9d5lu.lWcBDwaCGvrOE4dF0M396PiRM1MH.m</td>
+                <td>System Administrator</td>
+                <td>admin</td>
+                <td>-----BEGIN PUBLIC KEY-----
+                    MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtod7Eteef19pvxCM/dXO
+                    X//CnTslyBuUkQ8cWl8RpAFzxlM3LaPbGy4+tUzYZ7HmEAfkJVHfBXdq5galj7Mv
+                    uBsTp/Fec3K0hVAxW+Lgcs6t4acOYn6uWqTc+qGmo2EZz+h3PyP8iUNcy2IiAuTz
+                    SuPUKYg4VZa2p6cChMu9IqDTCKfSK0vNtXkw8Unqrp3Z13yAiLQmkw9taRawe8Fc
+                    HR+7uqy4n8IEQQiZegaUzg3aP3tCjSPWMmXjv0RpbFoVHHPTwYUNEGbnbykhyZ+R
+                    iDfVC9sU0Xe5h94uFSkLlhBszIsa6AHOQfz85h47dvj7+IAdyPRqL1yucpDse51S
+                    OwIDAQAB
+                    -----END PUBLIC KEY-----
+                </td>
+                <td>{"ciphertext":"8fe61adc61b90f16e0b312a54a722fdcb27022eab7f5ce965f8af3e5c9ec6e661fc64b18e9bae32deee546f528a93bc4e387a7e45d40b30b598da0628bf7334c359a08fa2e168f3832dac62d9a2f7a601cf309e425e5f2b91892161e9b0495e3f116c00b5d39154ce2963c23a2ad6b244a0c4b201ab8f0b0ad345053b211330e24c06e384512cbeac7f77692833e789f21ce23f37859c99deb546a6aca77d0bd201040480a5d2ce6e2a6949425b20a3642ba238bcf12dc85d218634ce3fa2dc725619a6e57914a9bc05e12c16774a33d8ae1456b280241b454d2c603d18c42ed6cbf38c5fc7217fd17f1c7c1472c75d200970a79fd5ccec9e8ae3a1413599aea45c13f901d9df6933d3e16ef6506212474f3c4467d31802326576698ba33796f0fbed1c32146cfe450faaf0a78744399beefb1b91b46aed8557dfd843970ed1b259295e06f897b9d2c05c705afa2edc79a9043b0dc1d414cc79da97e725f32473d7a0706e5c2b319f5753c0a182383d23f28dc786b48110bde32da736a8fb101f2f4338986e58923945bd1fd7e7300d095655c25adc4660ec7053c7abf7db3474d562d98974dd449ea2aa0841e588fa44c14f74802c672b9004bb3456b8a6d5707d272bd466ed111b983fb8bd2baf26435e6e3058b009e282764f92049e5d7b962389f6d5d7159f53399c9fffd9ecf3c1551fbb79ea1739e044ff743c76c2eb49164a2a564021a96421e8f9ee7ac951e07c86d2075c3701abd25e82a6ef1dc60863309db40217a1ac73a4b5e8a289ae128fdea00ee1db9baef9fe460ee0876c1fbeca56825e4725d0dea25dfdc705301b2401891d5653f4f0ca08eb28694433f8f6fcb75c296da8ba925d8ff7ac39c2cbf36f8ee9ca5c43c83f4de45dbab9d328ad7dcca20c79f6e5bd0d69099fcf61f53fa6f7fd4126dd3ccf77cc3d257e1ebc565f0be021da8733c3390827c37a6b4b3a5188a48bbf304693b46ee53a8c20215da7112d75c277577cf21d3cd94ef9bffc5f108049a024bd556618b80574b27c9b53c7856fa8a53ec0b91aa7eba78534ad5b297162c0db5fe4adf1efcee1e71c30eed560c8be78592b5f6d2c4d33b9670f6abfd5991fb2689c7862060bd1492b375d8f932de4679fce926dd1c42c1eff26d3b3604dd54566069148e4765a4f990fa90efb7e4247ecef1855cfb6bcebcfe6a8a86ba81ec83906cf84351c672d12e126a4054722c4e5afee3bed7bb075656c17a49030fcb47c54fdfd2500bb780924c13dd2f10205c50f0e312dc062f8ba5a6c85788a364a2c2e891294ead05f03e2b47268b550a9e902e9d59a6ea24aca2a6b14a35077099038f8e548826cf31bf04c1758a85946cde82d3708401a78e3fd615e3154c3aa2111499a0880e9863de9e98f30b9a4b3785cf365dd0cc71a68f8795d25734aa3eaff5da7f68ad137066bc78d09d8d380de408b04c95ac11108a35cffbccc6098e316ca42d58e6cbeb65093967e20bdf17f3259667b9ded398afc4497783e90bf9888ff9d4b7c3127621f4a6724e0cb8b12f7986bafc862891e82b5ab1539ada38f9285c3e14ce4ef13617eee4e119e04d5c556bb0706d0977b0a57b94ba18783f3bc0a6b3376344e20821050585fc5258a2cb6d4b8f45888be746ef4823672152b8d3ee532b60f1ece7d27683f90961f27dc4c9ba1d5ae8d84205c305bacbd98268bb1f1eb955202055a73af48cc47f605c68358bbaf7c3deed67006769ec855d319217f2f3de1837d531c4feea107d4aaa6af6012d5eccc74b0969ca1072f6675ca385f6428ef7e3f15050dc7bf33ab488ad2f139d383ad5bcaf9902c238e2f29968383a7d01826c4029a0f2e381a498f432058a89f6d5c610f14957ec541a52dd6134b856420ddbacc2a49f56e45a1b8caa40e8ae2e749e110bf00ce438dde57a877a1a11c8e95b004a7d1ee6a7a0294828cc3f3270ee6b534e4fa1f44dc082f33f218ae9cb3d97bddf4933c7978b64d275718decdb62af1f3f203ac86396be35d34f0265aeca7992d208a3a932f2ec0d67ff7c08641f337797780d7e8f85505d2cf687975031a83459e249165b634fd1019cb81b181d5ad03b1d1271749f68ca970f48d795c7d29df4d8b3830417eac0231b108be0a2313e31522acd4e5c55fb831118a792aa056af412c31122e1a55175712c41a5c623bca20be503b9893553b8c941f17c734b78b568f11fa49b1fa82966006be40c3d6234f9c7f38b17e8151ad7eef86a944bd8fa5d328b19d4c55d87eb360253b606d54a157cefdbb2c84e0a50351772cf054add84073ddc06216ba77562f7bf766a591fe748b558ea2494bc525ff32c8d7006474d475277307b3e920b50f38837f19dadee50cbfeeb8de7fe91c6a4a0430592fc18af4d359fc4","iv":"5ebffc28bd07bcafe0adb688c18885dc","tag":"5559ae35af16da948f216486d215ec2d"}
+                </td>
+                <td>✅</td>
+                <td>0</td>
+                <td><span style="color: #adb5bd">NULL</span></td>
+                <td><span style="color: #adb5bd">NULL</span></td>
+                <td><span style="color: #adb5bd">NULL</span></td>
+                <td><span style="color: #adb5bd">NULL</span></td>
+                <td>2026-02-07T07:48:42.764Z</td>
+                <td>2026-02-07T07:48:42.764Z</td>
+            </tr>
+            <tr>
+                <td>eceffefb-ac1c-4b8d-bb76-2a299d80491b</td>
+                <td>test@gmail.com</td>
+                <td>$2b$12$hKqzZgz/S1aZ5Jq5ppJxEu4MGwt5Y53tANExO9XnSY.owSb7njjGG</td>
+                <td>test test</td>
+                <td>patient</td>
+                <td>-----BEGIN PUBLIC KEY-----
+                    MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0i+nB9lVSTYCvfBht6GK
+                    9CVV3L8grS6/vqjHMpaXzxS+9AhDnGmSCt3NF7Yj1miCnLe2WvYCiILTFjHy2Vku
+                    fMGx0pVjPqawD78h7d60RJPWylvT9Bzs1OEksI7CjgFaIODicfPB6wgwcyLShDnM
+                    pGVgB4u7AtMQGYN1YeUm0HQ4X+Z+CbcZukXnhYECEfvCEr4N4B/6vFi2ZfZnejj/
+                    1q8i9g5eZaYzoA/cFFxm0iyBuNPNqNVByRXCKEyzHiiOC81abfXovEBfoDFpxjOS
+                    Mu7D1JREY6oxCz/va0BTIVvR/GxxxjiOj3R3RLyIwFCCoCz0CsNjMW8ASUH1jWYq
+                    hwIDAQAB
+                    -----END PUBLIC KEY-----
+                </td>
+                <td>{"ciphertext":"981d9fff5035024e81b841847124ff0b570fc4331d85b66d1796979f485151afeb01ce0370e1a00becc5f1357d64bc4aee549667a1933b6837c7998a11b54be14f9029e8ae99034b3a2631a25afe96b46cf5acf73a6339d606e28b011f318ff17d6fdd64fcae56b4c3a76050e36babd6ac6913f9fdd5f7bdc4aae686908d91d789b9e78ce48ef4090d56f482a7bd1bbd7d593463552d6f1a305695dd43909a38133c707921fad53cbe2d5fd0b79c260c1f4e1105bef656b5bfeaea943d12b19c3986286d337218b6100d53a4b8fa7e7d4754ec04e72003ba098a2f8c21032bcb2a1e565893c6d018a3459a2586277039c2f457e02dc7e00ac17b06e6a47228b7449d73887d43fed0bcc96181888ecc7d80dd92d06a40c975534f1716579986e5a7a281750879c47fa59c2101fc1f3dda5e22b65c5ef96ad2c122f9edf8b5b015e50393cb466312db8ae8add5ec4616fd57855262eaf5abef96d06b4c0a2ababa9633a0509568f2255b117664d0b821337b3bdd2b991e645341e98ad19def0655b7f4eceecc76f7b843a5fb16df388fe38c0a3a09410e02a32a72f267fcf33ec1c3f8f9bf07641b8f223f23a99926a077f5d389c5b416ca6141d1fc2d55020a4a0ca058b745574cad55c58017ac1e879de4812c4d7014fe2adeb6e82eeb3dabcac409c94d6d7f1170ace380f7e18c9a3d521802344ece4e81607f4fd46fd7b6c1b4487e380bda440f4d02a28e03bf172082f60ffab5b8cb8979eba15b3ddf64729bfeca2f8806e1d47948d64123544d68baaf7041871d0de39d22e6e2b773e99388ed6cb7d9cc1aa4246dc0333bf9d70fbc47795eee7af2d94bc3d1c1d4aab1569eb21c5ee50bb420d30d1a401e7476246be0aacc6376987aa0a35849512b2ece30db0ad4a66a9123b7183c5813308cbb1dc778dc1855659a01c4dba9133680c0217592084519eaacd8913227f0755493ae3e7ca696b4d2768afc8405aa1aad76c5ef1706612167ff5bb42833764169025acb3ebbeab35dea6f768af8db5d27f2f79ad1318ac8bae48f1cfa26eb5cb8ceaa7f647f002b3d88bad126dd6498eadb968697f0dba6157de5be405a16b6dfac0d020434e33dbd6053d5e4fe19e1584ba3842b022d55c70e158c21fe9d61a3d4c0c4385fe42d35d1ef5401540c74bcd089a35d73713a7f7c02e5e597b080062eb72b1a0d3964ad70a2df7dd49006fd03b7dc00822f21974d9ba78548779b3e5543c1a7cebcbf6e6a95b0eb05c4d4cca136b069c72836f7c623e4a35408eec029ae39c8f9b7d26fbc4b9fcfd1f83307a0e54b889be82117b7cdc26afa5d1922506973954e3e6308a051fe591414e780fd682eb10c877c278776ce6d6af86abf849d52ca7b4d293d651c612f753fb269ede1874bd97e56da76c6cb5c0d3c6db44230f02ce77ae2998eb52556583cc2c880e8883203daee4532c5476df75c1cefe6ff2a91da5fc6b37f9854d23665f8b3736916c5a7a92f875e17c2ce9424dc7ae0863d03df6422c13043e4fe126315425da1bfe203284fb7b135c08658ef52f4a490eece8f0e31018de4e36c593a1aa7f83a091401a7e1eb5fb51d23e636920ed21c8df6ca415762b66d3f02dcd0acfcf0fdab065848b6cd36b3b5c1beed5021c45d8bbf3ab79acae1415c46c9bc0d45c3b4f8674a1899c4791bc06c23b53579fe8c6500d6888763116ad54948f41418707bce0156d15ea2039a3ec18a2563e62b549fcad8d93ed16cad00e59e75db90aeb4a92a63ed3e0078835e147131d48f2ebebb3c9f1d92af0a9ca3df52879e2ff297daa7f0b9de8d1572789ac9f4caf6c84d3ed15ce2845324f1eb69e5cbfab76921b8f109681268261c42cdf7ed296000feb921ba646b1732af3a782668e2c0803f962f871a4c47fb49bd6058814ad5744a37089fc4a2e4c299bdd53b10d1202350a55ae97321f76d3c695d812a44c4e0c66cebdfd3fda0e14cee09b77e044139de98c870463afffd7f0262b49aace0fd29bcd0e2c0364f4e58e9a356e5a5831eddf0087fcf57869b1cda984681242c5f68c0dbc1d95d6de5722b9962a1e096825f8304685000a827fe8ae3a9ad18c27cb0db6471b97a3046d226dace25c6e6c521b94ae7c3762f7ba29541c335e12da31cb3b58ee8906650aa64a44e5556526633d54e076f564a309811544e8c1bb61620e586f48ef2f6a9440a622f0c0b767860134fc27af63e51aab7cb1fcb45d5eb6fb706bf827f99683b4d768f1446861e90910cd307eb1d703e575ca6bd42e87de7583aec4ee855db7b721c5b7220e943646957522f995324f82281ab6087e8a81530e1e451ce3db9052905e95fb6dc5fdcab464e63c004d3ed4999456bd12bd053f2a57987abfa1c5702e23a96d9ef3865a39661fb7386931d4c94e7","iv":"9131a37c08ba9d64cf90d74853e4a372","tag":"b931f66da13869cad527a623a5342718"}
+                </td>
+                <td>✅</td>
+                <td>0</td>
+                <td><span style="color: #adb5bd">NULL</span></td>
+                <td>2026-02-07T08:30:12.946Z</td>
+                <td>::1</td>
+                <td>Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0
+                    Safari/537.36</td>
+                <td>2026-02-07T08:30:06.935Z</td>
+                <td>2026-02-07T08:30:06.935Z</td>
+            </tr>
+        </tbody>
+    </table>
+</body>
+
+</html>

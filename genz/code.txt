@@ -1,0 +1,3074 @@
+SplitRx — Complete Implementation Guide
+Step 0: Project Overview & Architecture
+text
+
+┌─────────────────────────────────────────────────────────────────┐
+│                        SplitRx Architecture                      │
+│                                                                  │
+│  ┌──────────┐    ┌──────────┐    ┌──────────┐                   │
+│  │  Doctor   │    │ Patient  │    │Pharmacist│                   │
+│  │ Dashboard │    │   App    │    │  Scanner │                   │
+│  └────┬──────┘    └────┬─────┘    └────┬─────┘                   │
+│       │                │               │                         │
+│       └────────────────┼───────────────┘                         │
+│                        │  HTTPS (TLS 1.3)                        │
+│                        ▼                                         │
+│              ┌──────────────────┐                                │
+│              │   API Gateway    │                                │
+│              │  • Rate Limiter  │  ← Scenario #2                │
+│              │  • Helmet        │                                │
+│              │  • CORS          │                                │
+│              │  • Input Valid.  │  ← Scenario #4                │
+│              └────────┬─────────┘                                │
+│                       │                                          │
+│         ┌─────────────┼──────────────┐                          │
+│         ▼             ▼              ▼                           │
+│   ┌──────────┐  ┌──────────┐  ┌───────────┐                    │
+│   │Auth Svc  │  │Prescr.   │  │Dispensing  │                    │
+│   │• JWT     │  │Service   │  │Service     │                    │
+│   │• Adaptive│  │• Sign    │  │• Verify    │                    │
+│   │  Risk    │  │• Encrypt │  │• Dispense  │                    │
+│   │  Score   │  │• Consent │  │• QR Gen    │                    │
+│   └────┬─────┘  └────┬─────┘  └─────┬──────┘                    │
+│        │              │              │                           │
+│        └──────────────┼──────────────┘                           │
+│                       ▼                                          │
+│              ┌──────────────────┐                                │
+│              │   PostgreSQL     │                                │
+│              │  (Encrypted     │  ← Scenario #1                │
+│              │   Payloads)     │                                │
+│              └────────┬─────────┘                                │
+│                       │                                          │
+│                       ▼                                          │
+│              ┌──────────────────┐                                │
+│              │ Immutable Audit  │  ← Scenario #3                │
+│              │ Log (Hash Chain) │                                │
+│              └──────────────────┘                                │
+└─────────────────────────────────────────────────────────────────┘
+Step 1: Project Setup
+1.1 Create Directory Structure
+Bash
+
+mkdir splitrx && cd splitrx
+
+# Create full structure
+mkdir -p backend/src/{config,middleware,modules/{auth,prescription,dispensing,audit,consent},crypto,utils,routes}
+mkdir -p backend/src/modules/{auth,prescription,dispensing,audit,consent}
+mkdir -p backend/tests
+mkdir -p frontend/src/{components/{Doctor,Patient,Pharmacist,Auth,Common,Consent,Audit},services,utils,context}
+mkdir -p docs
+mkdir -p database
+
+touch docker-compose.yml
+touch .env.example
+touch README.md
+Full Tree
+text
+
+splitrx/
+├── docker-compose.yml
+├── .env.example
+├── README.md
+├── docs/
+│   ├── architecture.md
+│   ├── compliance-matrix.md
+│   ├── security-decisions.md
+│   └── threat-model.md
+│
+├── database/
+│   └── init.sql
+│
+├── backend/
+│   ├── Dockerfile
+│   ├── package.json
+│   ├── tsconfig.json
+│   ├── .env
+│   └── src/
+│       ├── app.ts
+│       ├── server.ts
+│       ├── config/
+│       │   ├── database.ts
+│       │   └── security.ts
+│       ├── crypto/
+│       │   ├── encryption.ts
+│       │   ├── signing.ts
+│       │   └── hashing.ts
+│       ├── middleware/
+│       │   ├── auth.ts
+│       │   ├── rateLimiter.ts
+│       │   ├── inputValidator.ts
+│       │   ├── adaptiveAuth.ts
+│       │   └── errorHandler.ts
+│       ├── modules/
+│       │   ├── auth/
+│       │   │   ├── auth.controller.ts
+│       │   │   ├── auth.service.ts
+│       │   │   └── auth.routes.ts
+│       │   ├── prescription/
+│       │   │   ├── prescription.controller.ts
+│       │   │   ├── prescription.service.ts
+│       │   │   └── prescription.routes.ts
+│       │   ├── dispensing/
+│       │   │   ├── dispensing.controller.ts
+│       │   │   ├── dispensing.service.ts
+│       │   │   └── dispensing.routes.ts
+│       │   ├── audit/
+│       │   │   ├── audit.service.ts
+│       │   │   └── audit.routes.ts
+│       │   └── consent/
+│       │       ├── consent.controller.ts
+│       │       ├── consent.service.ts
+│       │       └── consent.routes.ts
+│       ├── routes/
+│       │   └── index.ts
+│       └── utils/
+│           └── logger.ts
+│
+└── frontend/
+    ├── Dockerfile
+    ├── package.json
+    ├── vite.config.ts
+    └── src/
+        ├── App.tsx
+        ├── main.tsx
+        ├── services/
+        │   ├── api.ts
+        │   └── crypto.ts
+        ├── context/
+        │   └── AuthContext.tsx
+        └── components/
+            ├── Auth/
+            │   ├── Login.tsx
+            │   └── Register.tsx
+            ├── Doctor/
+            │   ├── DoctorDashboard.tsx
+            │   └── WritePrescription.tsx
+            ├── Patient/
+            │   ├── PatientDashboard.tsx
+            │   └── PrescriptionView.tsx
+            ├── Pharmacist/
+            │   ├── PharmacistDashboard.tsx
+            │   └── VerifyPrescription.tsx
+            ├── Consent/
+            │   └── ConsentManager.tsx
+            ├── Audit/
+            │   └── AuditViewer.tsx
+            └── Common/
+                ├── Navbar.tsx
+                └── ProtectedRoute.tsx
+Step 2: Environment & Docker
+.env.example
+env
+
+# Database
+DB_HOST=postgres
+DB_PORT=5432
+DB_NAME=splitrx
+DB_USER=splitrx_admin
+DB_PASSWORD=CHANGE_ME_STRONG_PASSWORD_HERE
+
+# JWT
+JWT_SECRET=CHANGE_ME_64_CHAR_RANDOM_STRING
+JWT_EXPIRY=15m
+REFRESH_TOKEN_EXPIRY=7d
+
+# Encryption
+ENCRYPTION_MASTER_KEY=CHANGE_ME_32_BYTE_HEX_KEY
+
+# App
+NODE_ENV=production
+PORT=3000
+ALLOWED_ORIGINS=http://localhost:5173
+
+# Rate Limiting
+RATE_LIMIT_WINDOW_MS=900000
+RATE_LIMIT_MAX=100
+AUTH_RATE_LIMIT_MAX=5
+docker-compose.yml
+YAML
+
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-splitrx}
+      POSTGRES_USER: ${DB_USER:-splitrx_admin}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changeme}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U splitrx_admin -d splitrx"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=${DB_NAME:-splitrx}
+      - DB_USER=${DB_USER:-splitrx_admin}
+      - DB_PASSWORD=${DB_PASSWORD:-changeme}
+      - JWT_SECRET=${JWT_SECRET:-change-me}
+      - ENCRYPTION_MASTER_KEY=${ENCRYPTION_MASTER_KEY:-change-me}
+      - ALLOWED_ORIGINS=http://localhost:5173
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+Step 3: Database Schema
+database/init.sql
+SQL
+
+-- =============================================
+-- SplitRx Database Schema
+-- Tamper-Proof Prescription System
+-- =============================================
+
+-- Enable UUID extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+-- =============================================
+-- USERS TABLE
+-- =============================================
+CREATE TYPE user_role AS ENUM ('doctor', 'patient', 'pharmacist', 'admin');
+
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255) UNIQUE NOT NULL,
+    password_hash VARCHAR(255) NOT NULL,
+    full_name VARCHAR(255) NOT NULL,
+    role user_role NOT NULL,
+    public_key TEXT,                    -- RSA public key for verification
+    private_key_encrypted TEXT,        -- Encrypted private key (encrypted with user's password-derived key)
+    is_active BOOLEAN DEFAULT true,
+    failed_login_attempts INTEGER DEFAULT 0,
+    locked_until TIMESTAMP,
+    last_login_at TIMESTAMP,
+    last_login_ip VARCHAR(45),
+    last_login_user_agent TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =============================================
+-- PRESCRIPTIONS TABLE
+-- Scenario #1: Encrypted payload
+-- =============================================
+CREATE TYPE prescription_status AS ENUM (
+    'active', 'dispensed', 'expired', 'revoked', 'cancelled'
+);
+
+CREATE TABLE prescriptions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    prescription_number VARCHAR(20) UNIQUE NOT NULL,  -- Human readable ID
+    doctor_id UUID NOT NULL REFERENCES users(id),
+    patient_id UUID NOT NULL REFERENCES users(id),
+    
+    -- ENCRYPTED PAYLOAD (Scenario #1)
+    -- Server stores ONLY ciphertext. Contains:
+    -- medication name, dosage, frequency, duration, notes
+    encrypted_payload TEXT NOT NULL,
+    encryption_iv VARCHAR(32) NOT NULL,
+    encryption_tag VARCHAR(32) NOT NULL,
+    
+    -- DIGITAL SIGNATURE (tamper proof)
+    doctor_signature TEXT NOT NULL,     -- RSA signature of the payload
+    payload_hash VARCHAR(64) NOT NULL,  -- SHA-256 hash of original payload
+    
+    status prescription_status DEFAULT 'active',
+    prescribed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL,
+    dispensed_at TIMESTAMP,
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =============================================
+-- DISPENSING RECORDS TABLE
+-- =============================================
+CREATE TABLE dispensing_records (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    prescription_id UUID NOT NULL REFERENCES prescriptions(id),
+    pharmacist_id UUID NOT NULL REFERENCES users(id),
+    
+    -- Verification proof
+    signature_verified BOOLEAN NOT NULL,
+    verification_hash VARCHAR(64) NOT NULL,  -- Hash of verification moment
+    
+    dispensed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    notes TEXT
+);
+
+-- =============================================
+-- CONSENT RECORDS TABLE (GDPR Art. 7)
+-- =============================================
+CREATE TYPE consent_status AS ENUM ('active', 'revoked', 'expired');
+
+CREATE TABLE consent_records (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    patient_id UUID NOT NULL REFERENCES users(id),
+    granted_to UUID NOT NULL REFERENCES users(id),
+    purpose VARCHAR(255) NOT NULL,
+    data_categories TEXT[] NOT NULL,     -- e.g., {'prescriptions', 'allergies'}
+    status consent_status DEFAULT 'active',
+    legal_basis VARCHAR(50) DEFAULT 'explicit_consent',
+    granted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL,
+    revoked_at TIMESTAMP
+);
+
+-- =============================================
+-- IMMUTABLE AUDIT LOG (Scenario #3)
+-- Hash-chained, append-only
+-- =============================================
+CREATE TABLE audit_log (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    actor_id UUID,
+    actor_role user_role,
+    action VARCHAR(100) NOT NULL,
+    resource_type VARCHAR(50) NOT NULL,
+    resource_id UUID,
+    resource_owner_id UUID,
+    metadata JSONB DEFAULT '{}',
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    
+    -- HASH CHAIN (Scenario #3)
+    previous_hash VARCHAR(64) NOT NULL,
+    entry_hash VARCHAR(64) NOT NULL,
+    
+    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =============================================
+-- SESSION TRACKING (Scenario #5 - Adaptive Auth)
+-- =============================================
+CREATE TABLE sessions (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id),
+    refresh_token_hash VARCHAR(64) NOT NULL,
+    ip_address VARCHAR(45),
+    user_agent TEXT,
+    device_fingerprint VARCHAR(64),
+    risk_score INTEGER DEFAULT 0,
+    is_active BOOLEAN DEFAULT true,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    expires_at TIMESTAMP NOT NULL,
+    last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- =============================================
+-- INDEXES
+-- =============================================
+CREATE INDEX idx_prescriptions_doctor ON prescriptions(doctor_id);
+CREATE INDEX idx_prescriptions_patient ON prescriptions(patient_id);
+CREATE INDEX idx_prescriptions_status ON prescriptions(status);
+CREATE INDEX idx_audit_log_timestamp ON audit_log(timestamp);
+CREATE INDEX idx_audit_log_actor ON audit_log(actor_id);
+CREATE INDEX idx_audit_log_resource ON audit_log(resource_id);
+CREATE INDEX idx_sessions_user ON sessions(user_id);
+CREATE INDEX idx_consent_patient ON consent_records(patient_id);
+
+-- =============================================
+-- SECURITY: Restrict audit_log modifications
+-- Create a read-only + insert-only role for audit
+-- =============================================
+-- The application connects with a role that CANNOT
+-- UPDATE or DELETE from audit_log
+
+-- Trigger to prevent updates/deletes on audit_log
+CREATE OR REPLACE FUNCTION prevent_audit_modification()
+RETURNS TRIGGER AS $$
+BEGIN
+    RAISE EXCEPTION 'Audit log entries cannot be modified or deleted';
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER no_audit_update
+    BEFORE UPDATE ON audit_log
+    FOR EACH ROW
+    EXECUTE FUNCTION prevent_audit_modification();
+
+CREATE TRIGGER no_audit_delete
+    BEFORE DELETE ON audit_log
+    FOR EACH ROW
+    EXECUTE FUNCTION prevent_audit_modification();
+
+-- Auto-update updated_at timestamp
+CREATE OR REPLACE FUNCTION update_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = CURRENT_TIMESTAMP;
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER update_users_timestamp
+    BEFORE UPDATE ON users
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER update_prescriptions_timestamp
+    BEFORE UPDATE ON prescriptions
+    FOR EACH ROW
+    EXECUTE FUNCTION update_updated_at();
+Step 4: Backend Implementation
+4.1 Initialize Backend
+Bash
+
+cd backend
+npm init -y
+npm install express pg dotenv helmet cors express-rate-limit \
+  jsonwebtoken bcryptjs uuid zod qrcode cookie-parser morgan
+npm install -D typescript @types/express @types/node @types/pg \
+  @types/jsonwebtoken @types/bcryptjs @types/uuid @types/qrcode \
+  @types/cookie-parser @types/cors @types/morgan \
+  ts-node nodemon
+backend/tsconfig.json
+JSON
+
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "commonjs",
+    "lib": ["ES2020"],
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
+}
+backend/package.json (scripts section)
+JSON
+
+{
+  "scripts": {
+    "dev": "nodemon --exec ts-node src/server.ts",
+    "build": "tsc",
+    "start": "node dist/server.js"
+  }
+}
+backend/Dockerfile
+Dockerfile
+
+FROM node:20-alpine
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci --only=production
+COPY . .
+RUN npm run build
+EXPOSE 3000
+USER node
+CMD ["node", "dist/server.js"]
+4.2 Core App Setup
+backend/src/config/database.ts
+TypeScript
+
+import { Pool } from 'pg';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+const pool = new Pool({
+    host: process.env.DB_HOST || 'localhost',
+    port: parseInt(process.env.DB_PORT || '5432'),
+    database: process.env.DB_NAME || 'splitrx',
+    user: process.env.DB_USER || 'splitrx_admin',
+    password: process.env.DB_PASSWORD,
+    max: 20,
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 2000,
+    // SSL in production
+    ...(process.env.NODE_ENV === 'production' && {
+        ssl: { rejectUnauthorized: true }
+    })
+});
+
+// Test connection
+pool.on('connect', () => {
+    console.log('✅ Database connected');
+});
+
+pool.on('error', (err) => {
+    console.error('❌ Database error:', err);
+    process.exit(-1);
+});
+
+export default pool;
+backend/src/config/security.ts
+TypeScript
+
+export const SECURITY_CONFIG = {
+    jwt: {
+        accessTokenExpiry: '15m',
+        refreshTokenExpiry: '7d',
+        algorithm: 'HS256' as const,
+    },
+    rateLimit: {
+        windowMs: 15 * 60 * 1000, // 15 minutes
+        maxRequests: 100,
+        authMaxRequests: 5,
+    },
+    password: {
+        saltRounds: 12,
+        minLength: 8,
+    },
+    encryption: {
+        algorithm: 'aes-256-gcm' as const,
+        ivLength: 16,
+        tagLength: 16,
+    },
+    session: {
+        maxFailedAttempts: 5,
+        lockoutDuration: 30 * 60 * 1000, // 30 minutes
+    },
+    riskThresholds: {
+        warning: 50,
+        critical: 80,
+    }
+};
+4.3 Crypto Module (THE HEART OF SECURITY)
+backend/src/crypto/encryption.ts
+TypeScript
+
+// =============================================
+// SCENARIO #1: Data Encryption
+// Server NEVER stores plaintext medical data
+// =============================================
+
+import crypto from 'crypto';
+import { SECURITY_CONFIG } from '../config/security';
+
+const ALGORITHM = SECURITY_CONFIG.encryption.algorithm;
+const IV_LENGTH = SECURITY_CONFIG.encryption.ivLength;
+
+export class EncryptionService {
+    private masterKey: Buffer;
+
+    constructor() {
+        const key = process.env.ENCRYPTION_MASTER_KEY;
+        if (!key || key.length < 32) {
+            throw new Error('ENCRYPTION_MASTER_KEY must be at least 32 characters');
+        }
+        // Derive a proper 32-byte key from the master key
+        this.masterKey = crypto.scryptSync(key, 'splitrx-salt', 32);
+    }
+
+    /**
+     * Encrypt sensitive data (prescription payload)
+     * Returns: { ciphertext, iv, tag }
+     */
+    encrypt(plaintext: string): { ciphertext: string; iv: string; tag: string } {
+        const iv = crypto.randomBytes(IV_LENGTH);
+        const cipher = crypto.createCipheriv(ALGORITHM, this.masterKey, iv);
+
+        let encrypted = cipher.update(plaintext, 'utf8', 'hex');
+        encrypted += cipher.final('hex');
+
+        const tag = cipher.getAuthTag();
+
+        return {
+            ciphertext: encrypted,
+            iv: iv.toString('hex'),
+            tag: tag.toString('hex'),
+        };
+    }
+
+    /**
+     * Decrypt data back to plaintext
+     */
+    decrypt(ciphertext: string, ivHex: string, tagHex: string): string {
+        const iv = Buffer.from(ivHex, 'hex');
+        const tag = Buffer.from(tagHex, 'hex');
+
+        const decipher = crypto.createDecipheriv(ALGORITHM, this.masterKey, iv);
+        decipher.setAuthTag(tag);
+
+        let decrypted = decipher.update(ciphertext, 'hex', 'utf8');
+        decrypted += decipher.final('utf8');
+
+        return decrypted;
+    }
+}
+
+export const encryptionService = new EncryptionService();
+backend/src/crypto/signing.ts
+TypeScript
+
+// =============================================
+// DIGITAL SIGNATURES
+// Doctor signs prescriptions with their private key
+// Anyone can verify with doctor's public key
+// =============================================
+
+import crypto from 'crypto';
+
+export class SigningService {
+
+    /**
+     * Generate RSA key pair for a user
+     */
+    static generateKeyPair(): { publicKey: string; privateKey: string } {
+        const { publicKey, privateKey } = crypto.generateKeyPairSync('rsa', {
+            modulusLength: 2048,
+            publicKeyEncoding: {
+                type: 'spki',
+                format: 'pem',
+            },
+            privateKeyEncoding: {
+                type: 'pkcs8',
+                format: 'pem',
+            },
+        });
+
+        return { publicKey, privateKey };
+    }
+
+    /**
+     * Doctor signs prescription data
+     */
+    static sign(data: string, privateKey: string): string {
+        const sign = crypto.createSign('SHA256');
+        sign.update(data);
+        sign.end();
+        return sign.sign(privateKey, 'hex');
+    }
+
+    /**
+     * Pharmacist verifies prescription is genuinely from the doctor
+     */
+    static verify(data: string, signature: string, publicKey: string): boolean {
+        try {
+            const verify = crypto.createVerify('SHA256');
+            verify.update(data);
+            verify.end();
+            return verify.verify(publicKey, signature, 'hex');
+        } catch {
+            return false;
+        }
+    }
+
+    /**
+     * Hash data (for payload integrity check)
+     */
+    static hash(data: string): string {
+        return crypto.createHash('sha256').update(data).digest('hex');
+    }
+}
+backend/src/crypto/hashing.ts
+TypeScript
+
+import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
+import { SECURITY_CONFIG } from '../config/security';
+
+export class HashingService {
+    /**
+     * Hash password with bcrypt
+     */
+    static async hashPassword(password: string): Promise<string> {
+        return bcrypt.hash(password, SECURITY_CONFIG.password.saltRounds);
+    }
+
+    /**
+     * Verify password against hash
+     */
+    static async verifyPassword(password: string, hash: string): Promise<boolean> {
+        return bcrypt.compare(password, hash);
+    }
+
+    /**
+     * SHA-256 hash for non-password data
+     */
+    static sha256(data: string): string {
+        return crypto.createHash('sha256').update(data).digest('hex');
+    }
+}
+4.4 Middleware Stack
+backend/src/middleware/auth.ts
+TypeScript
+
+// =============================================
+// JWT Authentication Middleware
+// =============================================
+
+import { Request, Response, NextFunction } from 'express';
+import jwt from 'jsonwebtoken';
+
+export interface AuthenticatedRequest extends Request {
+    user?: {
+        id: string;
+        email: string;
+        role: string;
+        sessionId: string;
+    };
+}
+
+export const authenticate = (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        return res.status(401).json({
+            error: 'Authentication required',
+            code: 'MISSING_TOKEN'
+        });
+    }
+
+    const token = authHeader.split(' ')[1];
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+        req.user = {
+            id: decoded.sub,
+            email: decoded.email,
+            role: decoded.role,
+            sessionId: decoded.sessionId,
+        };
+        next();
+    } catch (error: any) {
+        if (error.name === 'TokenExpiredError') {
+            return res.status(401).json({
+                error: 'Token expired',
+                code: 'TOKEN_EXPIRED'
+            });
+        }
+        return res.status(401).json({
+            error: 'Invalid token',
+            code: 'INVALID_TOKEN'
+        });
+    }
+};
+
+/**
+ * Role-based authorization
+ */
+export const authorize = (...roles: string[]) => {
+    return (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+        if (!req.user || !roles.includes(req.user.role)) {
+            return res.status(403).json({
+                error: 'Insufficient permissions',
+                code: 'FORBIDDEN',
+                required: roles,
+                current: req.user?.role
+            });
+        }
+        next();
+    };
+};
+backend/src/middleware/adaptiveAuth.ts
+TypeScript
+
+// =============================================
+// SCENARIO #5: Adaptive / Continuous Authentication
+// Re-evaluate risk during the session
+// =============================================
+
+import { Response, NextFunction } from 'express';
+import { AuthenticatedRequest } from './auth';
+import { SECURITY_CONFIG } from '../config/security';
+import pool from '../config/database';
+import { auditService } from '../modules/audit/audit.service';
+
+interface RiskFactors {
+    ipChanged: boolean;
+    userAgentChanged: boolean;
+    unusualHour: boolean;
+    highActionFrequency: boolean;
+    sensitiveResource: boolean;
+}
+
+export const adaptiveAuth = (sensitivityLevel: 'low' | 'medium' | 'high' = 'medium') => {
+    return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+        if (!req.user) {
+            return res.status(401).json({ error: 'Not authenticated' });
+        }
+
+        try {
+            // Get the user's session
+            const sessionResult = await pool.query(
+                'SELECT * FROM sessions WHERE user_id = $1 AND is_active = true ORDER BY created_at DESC LIMIT 1',
+                [req.user.id]
+            );
+
+            if (sessionResult.rows.length === 0) {
+                return res.status(401).json({
+                    error: 'No active session',
+                    code: 'SESSION_NOT_FOUND'
+                });
+            }
+
+            const session = sessionResult.rows[0];
+            const currentIp = req.ip || req.socket.remoteAddress || '';
+            const currentUserAgent = req.headers['user-agent'] || '';
+            const currentHour = new Date().getHours();
+
+            // Count recent actions (last 5 minutes)
+            const recentActions = await pool.query(
+                `SELECT COUNT(*) FROM audit_log 
+                 WHERE actor_id = $1 AND timestamp > NOW() - INTERVAL '5 minutes'`,
+                [req.user.id]
+            );
+
+            // Calculate risk factors
+            const riskFactors: RiskFactors = {
+                ipChanged: session.ip_address !== currentIp,
+                userAgentChanged: session.user_agent !== currentUserAgent,
+                unusualHour: currentHour < 6 || currentHour > 22,
+                highActionFrequency: parseInt(recentActions.rows[0].count) > 50,
+                sensitiveResource: sensitivityLevel === 'high',
+            };
+
+            // Calculate risk score (0-100)
+            let riskScore = 0;
+            if (riskFactors.ipChanged) riskScore += 30;
+            if (riskFactors.userAgentChanged) riskScore += 25;
+            if (riskFactors.unusualHour) riskScore += 10;
+            if (riskFactors.highActionFrequency) riskScore += 20;
+            if (riskFactors.sensitiveResource) riskScore += 15;
+
+            // Update session risk score
+            await pool.query(
+                'UPDATE sessions SET risk_score = $1, last_activity = NOW() WHERE id = $2',
+                [riskScore, session.id]
+            );
+
+            // Act on risk
+            if (riskScore >= SECURITY_CONFIG.riskThresholds.critical) {
+                // BLOCK — Session too risky
+                await pool.query(
+                    'UPDATE sessions SET is_active = false WHERE id = $1',
+                    [session.id]
+                );
+
+                await auditService.log({
+                    actorId: req.user.id,
+                    actorRole: req.user.role as any,
+                    action: 'SESSION_BLOCKED',
+                    resourceType: 'session',
+                    resourceId: session.id,
+                    metadata: { riskScore, riskFactors },
+                    ipAddress: currentIp,
+                    userAgent: currentUserAgent,
+                });
+
+                return res.status(403).json({
+                    error: 'Session blocked due to suspicious activity',
+                    code: 'HIGH_RISK_SESSION',
+                    action: 'RE_AUTHENTICATE'
+                });
+            }
+
+            if (riskScore >= SECURITY_CONFIG.riskThresholds.warning) {
+                // WARNING — Log but allow (in production: require step-up auth)
+                await auditService.log({
+                    actorId: req.user.id,
+                    actorRole: req.user.role as any,
+                    action: 'RISK_WARNING',
+                    resourceType: 'session',
+                    resourceId: session.id,
+                    metadata: { riskScore, riskFactors },
+                    ipAddress: currentIp,
+                    userAgent: currentUserAgent,
+                });
+
+                // Add warning header
+                res.setHeader('X-Risk-Score', riskScore.toString());
+                res.setHeader('X-Step-Up-Auth-Required', 'true');
+            }
+
+            next();
+        } catch (error) {
+            console.error('Adaptive auth error:', error);
+            next(); // Don't block on error, but log it
+        }
+    };
+};
+backend/src/middleware/rateLimiter.ts
+TypeScript
+
+// =============================================
+// SCENARIO #2: Rate Limiting (from "Still Spinnin")
+// "Doors stayed open, never slowed the rush"
+// We CLOSE the doors.
+// =============================================
+
+import rateLimit from 'express-rate-limit';
+import { SECURITY_CONFIG } from '../config/security';
+
+// General API rate limiter
+export const apiLimiter = rateLimit({
+    windowMs: SECURITY_CONFIG.rateLimit.windowMs,
+    max: SECURITY_CONFIG.rateLimit.maxRequests,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+        error: 'Too many requests. Please try again later.',
+        code: 'RATE_LIMITED',
+        retryAfter: Math.ceil(SECURITY_CONFIG.rateLimit.windowMs / 1000),
+    },
+});
+
+// Strict rate limiter for authentication endpoints
+export const authLimiter = rateLimit({
+    windowMs: SECURITY_CONFIG.rateLimit.windowMs,
+    max: SECURITY_CONFIG.rateLimit.authMaxRequests,
+    standardHeaders: true,
+    legacyHeaders: false,
+    message: {
+        error: 'Too many login attempts. Account temporarily locked.',
+        code: 'AUTH_RATE_LIMITED',
+    },
+    skipSuccessfulRequests: true, // Only count failed attempts
+});
+
+// Prescription creation limiter (prevent abuse)
+export const prescriptionLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 50, // 50 prescriptions per hour per doctor
+    message: {
+        error: 'Prescription rate limit exceeded.',
+        code: 'PRESCRIPTION_RATE_LIMITED',
+    },
+});
+backend/src/middleware/inputValidator.ts
+TypeScript
+
+// =============================================
+// SCENARIO #4: Input Validation
+// "Everything is poisoned until verified"
+// =============================================
+
+import { z } from 'zod';
+import { Request, Response, NextFunction } from 'express';
+
+// ---- Validation Schemas ----
+
+export const registerSchema = z.object({
+    email: z.string().email().max(255),
+    password: z.string()
+        .min(8, 'Password must be at least 8 characters')
+        .max(128)
+        .regex(/[A-Z]/, 'Must contain uppercase letter')
+        .regex(/[a-z]/, 'Must contain lowercase letter')
+        .regex(/[0-9]/, 'Must contain number')
+        .regex(/[^A-Za-z0-9]/, 'Must contain special character'),
+    full_name: z.string()
+        .min(1).max(100)
+        .regex(/^[a-zA-Z\s'-]+$/, 'Invalid characters in name'),
+    role: z.enum(['doctor', 'patient', 'pharmacist']),
+});
+
+export const loginSchema = z.object({
+    email: z.string().email().max(255),
+    password: z.string().min(1).max(128),
+});
+
+export const prescriptionSchema = z.object({
+    patient_id: z.string().uuid(),
+    medication_name: z.string().min(1).max(200)
+        .regex(/^[a-zA-Z0-9\s\-().,%/]+$/, 'Invalid characters in medication name'),
+    dosage: z.string().min(1).max(100),
+    frequency: z.string().min(1).max(100),
+    duration: z.string().min(1).max(100),
+    notes: z.string().max(1000).optional(),
+    expires_in_days: z.number().int().min(1).max(365),
+});
+
+export const consentSchema = z.object({
+    granted_to: z.string().uuid(),
+    purpose: z.string().min(1).max(255),
+    data_categories: z.array(z.string()).min(1),
+    expires_in_days: z.number().int().min(1).max(365),
+});
+
+// ---- Validation Middleware Factory ----
+
+export const validate = (schema: z.ZodSchema) => {
+    return (req: Request, res: Response, next: NextFunction) => {
+        try {
+            const result = schema.safeParse(req.body);
+            if (!result.success) {
+                return res.status(400).json({
+                    error: 'Validation failed',
+                    code: 'INVALID_INPUT',
+                    details: result.error.errors.map(e => ({
+                        field: e.path.join('.'),
+                        message: e.message,
+                    })),
+                });
+            }
+            // Replace body with parsed (sanitized) data
+            req.body = result.data;
+            next();
+        } catch (error) {
+            return res.status(400).json({
+                error: 'Invalid request body',
+                code: 'PARSE_ERROR',
+            });
+        }
+    };
+};
+backend/src/middleware/errorHandler.ts
+TypeScript
+
+import { Request, Response, NextFunction } from 'express';
+
+export const errorHandler = (
+    err: Error,
+    req: Request,
+    res: Response,
+    next: NextFunction
+) => {
+    console.error('Unhandled error:', err);
+
+    // Never leak stack traces in production
+    const isDev = process.env.NODE_ENV === 'development';
+
+    res.status(500).json({
+        error: 'Internal server error',
+        code: 'INTERNAL_ERROR',
+        ...(isDev && { stack: err.stack, message: err.message }),
+    });
+};
+4.5 Audit Service (Scenario #3 — Immutable Logs)
+backend/src/modules/audit/audit.service.ts
+TypeScript
+
+// =============================================
+// SCENARIO #3: Immutable Hash-Chained Audit Log
+// "A system that cannot guarantee the integrity 
+//  of its logs has zero knowledge of its own 
+//  security state."
+// =============================================
+
+import { v4 as uuid } from 'uuid';
+import crypto from 'crypto';
+import pool from '../../config/database';
+
+interface AuditLogEntry {
+    actorId: string | null;
+    actorRole: 'doctor' | 'patient' | 'pharmacist' | 'admin' | 'system';
+    action: string;
+    resourceType: string;
+    resourceId?: string;
+    resourceOwnerId?: string;
+    metadata?: Record<string, any>;
+    ipAddress?: string;
+    userAgent?: string;
+}
+
+class AuditService {
+
+    /**
+     * Append an entry to the immutable audit log
+     * Each entry is hash-chained to the previous one
+     */
+    async log(entry: AuditLogEntry): Promise<void> {
+        const client = await pool.connect();
+        try {
+            await client.query('BEGIN');
+
+            // Get the hash of the last entry
+            const lastEntry = await client.query(
+                'SELECT entry_hash FROM audit_log ORDER BY timestamp DESC LIMIT 1'
+            );
+            const previousHash = lastEntry.rows[0]?.entry_hash || '0'.repeat(64);
+
+            const id = uuid();
+            const timestamp = new Date().toISOString();
+
+            // Create the entry object for hashing
+            const hashPayload = {
+                id,
+                timestamp,
+                actorId: entry.actorId,
+                actorRole: entry.actorRole,
+                action: entry.action,
+                resourceType: entry.resourceType,
+                resourceId: entry.resourceId || null,
+                previousHash,
+            };
+
+            // Compute hash of this entry (chained to previous)
+            const entryHash = crypto
+                .createHash('sha256')
+                .update(JSON.stringify(hashPayload))
+                .digest('hex');
+
+            // INSERT only — triggers prevent UPDATE/DELETE
+            await client.query(
+                `INSERT INTO audit_log 
+                 (id, actor_id, actor_role, action, resource_type, resource_id, 
+                  resource_owner_id, metadata, ip_address, user_agent, 
+                  previous_hash, entry_hash, timestamp)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+                [
+                    id,
+                    entry.actorId,
+                    entry.actorRole,
+                    entry.action,
+                    entry.resourceType,
+                    entry.resourceId || null,
+                    entry.resourceOwnerId || null,
+                    JSON.stringify(entry.metadata || {}),
+                    entry.ipAddress || null,
+                    entry.userAgent || null,
+                    previousHash,
+                    entryHash,
+                    timestamp,
+                ]
+            );
+
+            await client.query('COMMIT');
+        } catch (error) {
+            await client.query('ROLLBACK');
+            console.error('Audit log error:', error);
+            // Audit failures should never crash the app
+            // but should be reported to monitoring
+        } finally {
+            client.release();
+        }
+    }
+
+    /**
+     * Verify the integrity of the entire audit chain
+     * If ANY entry was tampered with, this will detect it
+     */
+    async verifyChainIntegrity(): Promise<{
+        valid: boolean;
+        totalEntries: number;
+        brokenAt?: string;
+    }> {
+        const result = await pool.query(
+            'SELECT * FROM audit_log ORDER BY timestamp ASC'
+        );
+
+        const entries = result.rows;
+        let previousHash = '0'.repeat(64);
+
+        for (let i = 0; i < entries.length; i++) {
+            const entry = entries[i];
+
+            // Check chain link
+            if (entry.previous_hash !== previousHash) {
+                return {
+                    valid: false,
+                    totalEntries: entries.length,
+                    brokenAt: entry.id,
+                };
+            }
+
+            // Recompute hash to verify integrity
+            const hashPayload = {
+                id: entry.id,
+                timestamp: entry.timestamp.toISOString(),
+                actorId: entry.actor_id,
+                actorRole: entry.actor_role,
+                action: entry.action,
+                resourceType: entry.resource_type,
+                resourceId: entry.resource_id,
+                previousHash: entry.previous_hash,
+            };
+
+            const computedHash = crypto
+                .createHash('sha256')
+                .update(JSON.stringify(hashPayload))
+                .digest('hex');
+
+            if (computedHash !== entry.entry_hash) {
+                return {
+                    valid: false,
+                    totalEntries: entries.length,
+                    brokenAt: entry.id,
+                };
+            }
+
+            previousHash = entry.entry_hash;
+        }
+
+        return { valid: true, totalEntries: entries.length };
+    }
+
+    /**
+     * Get audit logs for a specific resource
+     */
+    async getLogsForResource(resourceId: string): Promise<any[]> {
+        const result = await pool.query(
+            `SELECT actor_id, actor_role, action, resource_type, 
+                    metadata, timestamp, entry_hash
+             FROM audit_log 
+             WHERE resource_id = $1 
+             ORDER BY timestamp DESC`,
+            [resourceId]
+        );
+        return result.rows;
+    }
+
+    /**
+     * Get audit logs for a specific user (GDPR Art. 15 - Right of Access)
+     */
+    async getLogsForUser(userId: string): Promise<any[]> {
+        const result = await pool.query(
+            `SELECT action, resource_type, resource_id, 
+                    metadata, timestamp
+             FROM audit_log 
+             WHERE resource_owner_id = $1 
+             ORDER BY timestamp DESC
+             LIMIT 100`,
+            [userId]
+        );
+        return result.rows;
+    }
+}
+
+export const auditService = new AuditService();
+backend/src/modules/audit/audit.routes.ts
+TypeScript
+
+import { Router } from 'express';
+import { authenticate, authorize, AuthenticatedRequest } from '../../middleware/auth';
+import { adaptiveAuth } from '../../middleware/adaptiveAuth';
+import { auditService } from './audit.service';
+import { Response } from 'express';
+
+const router = Router();
+
+// Verify audit chain integrity (admin only)
+router.get(
+    '/verify',
+    authenticate,
+    authorize('admin'),
+    async (req: AuthenticatedRequest, res: Response) => {
+        const result = await auditService.verifyChainIntegrity();
+        res.json(result);
+    }
+);
+
+// Get my audit logs (GDPR Art. 15)
+router.get(
+    '/my-logs',
+    authenticate,
+    async (req: AuthenticatedRequest, res: Response) => {
+        const logs = await auditService.getLogsForUser(req.user!.id);
+        res.json({ logs });
+    }
+);
+
+// Get logs for a specific prescription
+router.get(
+    '/resource/:resourceId',
+    authenticate,
+    adaptiveAuth('medium'),
+    async (req: AuthenticatedRequest, res: Response) => {
+        const logs = await auditService.getLogsForResource(req.params.resourceId);
+        res.json({ logs });
+    }
+);
+
+export default router;
+4.6 Auth Module
+backend/src/modules/auth/auth.service.ts
+TypeScript
+
+import { v4 as uuid } from 'uuid';
+import jwt from 'jsonwebtoken';
+import pool from '../../config/database';
+import { HashingService } from '../../crypto/hashing';
+import { SigningService } from '../../crypto/signing';
+import { auditService } from '../audit/audit.service';
+import { SECURITY_CONFIG } from '../../config/security';
+
+interface RegisterInput {
+    email: string;
+    password: string;
+    full_name: string;
+    role: 'doctor' | 'patient' | 'pharmacist';
+}
+
+interface LoginInput {
+    email: string;
+    password: string;
+}
+
+class AuthService {
+
+    async register(input: RegisterInput) {
+        // Check if email exists
+        const existing = await pool.query(
+            'SELECT id FROM users WHERE email = $1',
+            [input.email]
+        );
+
+        if (existing.rows.length > 0) {
+            throw new Error('Email already registered');
+        }
+
+        // Hash password
+        const passwordHash = await HashingService.hashPassword(input.password);
+
+        // Generate RSA key pair for digital signatures
+        const { publicKey, privateKey } = SigningService.generateKeyPair();
+
+        // Encrypt private key with user's password-derived key
+        // In production: use a proper KMS
+        const { encryptionService } = require('../../crypto/encryption');
+        const encryptedPrivateKey = encryptionService.encrypt(privateKey);
+
+        const userId = uuid();
+
+        await pool.query(
+            `INSERT INTO users (id, email, password_hash, full_name, role, public_key, private_key_encrypted)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+            [
+                userId,
+                input.email,
+                passwordHash,
+                input.full_name,
+                input.role,
+                publicKey,
+                JSON.stringify(encryptedPrivateKey),
+            ]
+        );
+
+        await auditService.log({
+            actorId: userId,
+            actorRole: input.role,
+            action: 'USER_REGISTERED',
+            resourceType: 'user',
+            resourceId: userId,
+        });
+
+        return { id: userId, email: input.email, role: input.role };
+    }
+
+    async login(input: LoginInput, ipAddress: string, userAgent: string) {
+        // Find user
+        const result = await pool.query(
+            'SELECT * FROM users WHERE email = $1 AND is_active = true',
+            [input.email]
+        );
+
+        if (result.rows.length === 0) {
+            // Don't reveal whether email exists
+            throw new Error('Invalid credentials');
+        }
+
+        const user = result.rows[0];
+
+        // Check if account is locked
+        if (user.locked_until && new Date(user.locked_until) > new Date()) {
+            throw new Error('Account temporarily locked. Try again later.');
+        }
+
+        // Verify password
+        const validPassword = await HashingService.verifyPassword(
+            input.password,
+            user.password_hash
+        );
+
+        if (!validPassword) {
+            // Increment failed attempts
+            const newAttempts = (user.failed_login_attempts || 0) + 1;
+            const lockUntil = newAttempts >= SECURITY_CONFIG.session.maxFailedAttempts
+                ? new Date(Date.now() + SECURITY_CONFIG.session.lockoutDuration)
+                : null;
+
+            await pool.query(
+                `UPDATE users SET failed_login_attempts = $1, locked_until = $2 WHERE id = $3`,
+                [newAttempts, lockUntil, user.id]
+            );
+
+            await auditService.log({
+                actorId: user.id,
+                actorRole: user.role,
+                action: 'LOGIN_FAILED',
+                resourceType: 'auth',
+                metadata: { attempt: newAttempts, locked: !!lockUntil },
+                ipAddress,
+                userAgent,
+            });
+
+            throw new Error('Invalid credentials');
+        }
+
+        // Reset failed attempts on success
+        await pool.query(
+            `UPDATE users SET failed_login_attempts = 0, locked_until = NULL, 
+             last_login_at = NOW(), last_login_ip = $1, last_login_user_agent = $2
+             WHERE id = $3`,
+            [ipAddress, userAgent, user.id]
+        );
+
+        // Create session
+        const sessionId = uuid();
+        const refreshToken = uuid();
+        const refreshTokenHash = HashingService.sha256(refreshToken);
+        const deviceFingerprint = HashingService.sha256(
+            `${ipAddress}-${userAgent}`
+        );
+
+        await pool.query(
+            `INSERT INTO sessions (id, user_id, refresh_token_hash, ip_address, 
+             user_agent, device_fingerprint, expires_at)
+             VALUES ($1, $2, $3, $4, $5, $6, NOW() + INTERVAL '7 days')`,
+            [sessionId, user.id, refreshTokenHash, ipAddress, userAgent, deviceFingerprint]
+        );
+
+        // Generate JWT access token (short-lived)
+        const accessToken = jwt.sign(
+            {
+                sub: user.id,
+                email: user.email,
+                role: user.role,
+                sessionId: sessionId,
+            },
+            process.env.JWT_SECRET!,
+            { expiresIn: SECURITY_CONFIG.jwt.accessTokenExpiry }
+        );
+
+        await auditService.log({
+            actorId: user.id,
+            actorRole: user.role,
+            action: 'LOGIN_SUCCESS',
+            resourceType: 'auth',
+            resourceId: sessionId,
+            ipAddress,
+            userAgent,
+        });
+
+        return {
+            accessToken,
+            refreshToken,
+            user: {
+                id: user.id,
+                email: user.email,
+                full_name: user.full_name,
+                role: user.role,
+            },
+        };
+    }
+
+    async refreshToken(refreshToken: string) {
+        const refreshTokenHash = HashingService.sha256(refreshToken);
+
+        const result = await pool.query(
+            `SELECT s.*, u.email, u.role, u.full_name 
+             FROM sessions s 
+             JOIN users u ON s.user_id = u.id
+             WHERE s.refresh_token_hash = $1 AND s.is_active = true AND s.expires_at > NOW()`,
+            [refreshTokenHash]
+        );
+
+        if (result.rows.length === 0) {
+            throw new Error('Invalid or expired refresh token');
+        }
+
+        const session = result.rows[0];
+
+        // Rotate refresh token (one-time use)
+        const newRefreshToken = uuid();
+        const newRefreshTokenHash = HashingService.sha256(newRefreshToken);
+
+        await pool.query(
+            `UPDATE sessions SET refresh_token_hash = $1, last_activity = NOW() WHERE id = $2`,
+            [newRefreshTokenHash, session.id]
+        );
+
+        // Issue new access token
+        const accessToken = jwt.sign(
+            {
+                sub: session.user_id,
+                email: session.email,
+                role: session.role,
+                sessionId: session.id,
+            },
+            process.env.JWT_SECRET!,
+            { expiresIn: SECURITY_CONFIG.jwt.accessTokenExpiry }
+        );
+
+        return { accessToken, refreshToken: newRefreshToken };
+    }
+
+    async logout(sessionId: string, userId: string) {
+        await pool.query(
+            'UPDATE sessions SET is_active = false WHERE id = $1 AND user_id = $2',
+            [sessionId, userId]
+        );
+
+        await auditService.log({
+            actorId: userId,
+            actorRole: 'patient', // will be overridden
+            action: 'LOGOUT',
+            resourceType: 'auth',
+            resourceId: sessionId,
+        });
+    }
+}
+
+export const authService = new AuthService();
+backend/src/modules/auth/auth.controller.ts
+TypeScript
+
+import { Request, Response } from 'express';
+import { authService } from './auth.service';
+import { AuthenticatedRequest } from '../../middleware/auth';
+
+export class AuthController {
+
+    static async register(req: Request, res: Response) {
+        try {
+            const result = await authService.register(req.body);
+            res.status(201).json({
+                message: 'Registration successful',
+                user: result,
+            });
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    }
+
+    static async login(req: Request, res: Response) {
+        try {
+            const ipAddress = req.ip || req.socket.remoteAddress || '';
+            const userAgent = req.headers['user-agent'] || '';
+
+            const result = await authService.login(req.body, ipAddress, userAgent);
+
+            // Set refresh token as httpOnly cookie
+            res.cookie('refreshToken', result.refreshToken, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: 'strict',
+                maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+                path: '/api/auth/refresh',
+            });
+
+            res.json({
+                accessToken: result.accessToken,
+                user: result.user,
+            });
+        } catch (error: any) {
+            res.status(401).json({ error: error.message });
+        }
+    }
+
+    static async refresh(req: Request, res: Response) {
+        try {
+            const refreshToken = req.cookies?.refreshToken;
+            if (!refreshToken) {
+                return res.status(401).json({ error: 'No refresh token' });
+            }
+
+            const result = await authService.refreshToken(refreshToken);
+
+            res.cookie('refreshToken', result.refreshToken, {
+                httpOnly: true,
+                secure: process.env.NODE_ENV === 'production',
+                sameSite: 'strict',
+                maxAge: 7 * 24 * 60 * 60 * 1000,
+                path: '/api/auth/refresh',
+            });
+
+            res.json({ accessToken: result.accessToken });
+        } catch (error: any) {
+            res.status(401).json({ error: error.message });
+        }
+    }
+
+    static async logout(req: AuthenticatedRequest, res: Response) {
+        try {
+            await authService.logout(req.user!.sessionId, req.user!.id);
+            res.clearCookie('refreshToken');
+            res.json({ message: 'Logged out successfully' });
+        } catch (error: any) {
+            res.status(500).json({ error: error.message });
+        }
+    }
+
+    static async me(req: AuthenticatedRequest, res: Response) {
+        res.json({ user: req.user });
+    }
+}
+backend/src/modules/auth/auth.routes.ts
+TypeScript
+
+import { Router } from 'express';
+import { AuthController } from './auth.controller';
+import { authenticate } from '../../middleware/auth';
+import { authLimiter } from '../../middleware/rateLimiter';
+import { validate, registerSchema, loginSchema } from '../../middleware/inputValidator';
+
+const router = Router();
+
+router.post('/register', authLimiter, validate(registerSchema), AuthController.register);
+router.post('/login', authLimiter, validate(loginSchema), AuthController.login);
+router.post('/refresh', AuthController.refresh);
+router.post('/logout', authenticate, AuthController.logout);
+router.get('/me', authenticate, AuthController.me);
+
+export default router;
+4.7 Prescription Module (CORE FEATURE)
+backend/src/modules/prescription/prescription.service.ts
+TypeScript
+
+import { v4 as uuid } from 'uuid';
+import pool from '../../config/database';
+import { encryptionService } from '../../crypto/encryption';
+import { SigningService } from '../../crypto/signing';
+import { auditService } from '../audit/audit.service';
+import QRCode from 'qrcode';
+
+interface CreatePrescriptionInput {
+    doctorId: string;
+    patientId: string;
+    medicationName: string;
+    dosage: string;
+    frequency: string;
+    duration: string;
+    notes?: string;
+    expiresInDays: number;
+}
+
+class PrescriptionService {
+
+    /**
+     * Create a new prescription
+     * 1. Build the payload
+     * 2. Encrypt it (Scenario #1 — server stores ciphertext only)
+     * 3. Sign it (doctor's digital signature)
+     * 4. Store everything
+     * 5. Log to immutable audit (Scenario #3)
+     */
+    async create(input: CreatePrescriptionInput, ipAddress: string, userAgent: string) {
+        // Build prescription payload
+        const payload = {
+            medication_name: input.medicationName,
+            dosage: input.dosage,
+            frequency: input.frequency,
+            duration: input.duration,
+            notes: input.notes || '',
+            prescribed_at: new Date().toISOString(),
+            doctor_id: input.doctorId,
+            patient_id: input.patientId,
+        };
+
+        const payloadString = JSON.stringify(payload);
+
+        // STEP 1: Hash the payload (for integrity verification)
+        const payloadHash = SigningService.hash(payloadString);
+
+        // STEP 2: Get doctor's private key to sign
+        const doctorResult = await pool.query(
+            'SELECT private_key_encrypted, public_key FROM users WHERE id = $1 AND role = $2',
+            [input.doctorId, 'doctor']
+        );
+
+        if (doctorResult.rows.length === 0) {
+            throw new Error('Doctor not found');
+        }
+
+        // Verify patient exists
+        const patientResult = await pool.query(
+            'SELECT id FROM users WHERE id = $1 AND role = $2',
+            [input.patientId, 'patient']
+        );
+
+        if (patientResult.rows.length === 0) {
+            throw new Error('Patient not found');
+        }
+
+        // Decrypt doctor's private key
+        const encryptedKey = JSON.parse(doctorResult.rows[0].private_key_encrypted);
+        const doctorPrivateKey = encryptionService.decrypt(
+            encryptedKey.ciphertext,
+            encryptedKey.iv,
+            encryptedKey.tag
+        );
+
+        // STEP 3: Sign the payload hash
+        const doctorSignature = SigningService.sign(payloadHash, doctorPrivateKey);
+
+        // STEP 4: Encrypt the payload (server stores ONLY ciphertext)
+        const encrypted = encryptionService.encrypt(payloadString);
+
+        // Generate prescription number
+        const prescriptionNumber = `RX-${Date.now().toString(36).toUpperCase()}-${uuid().slice(0, 4).toUpperCase()}`;
+
+        // STEP 5: Store in database
+        const prescriptionId = uuid();
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + input.expiresInDays);
+
+        await pool.query(
+            `INSERT INTO prescriptions 
+             (id, prescription_number, doctor_id, patient_id, 
+              encrypted_payload, encryption_iv, encryption_tag,
+              doctor_signature, payload_hash, expires_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            [
+                prescriptionId,
+                prescriptionNumber,
+                input.doctorId,
+                input.patientId,
+                encrypted.ciphertext,
+                encrypted.iv,
+                encrypted.tag,
+                doctorSignature,
+                payloadHash,
+                expiresAt,
+            ]
+        );
+
+        // STEP 6: Immutable audit log
+        await auditService.log({
+            actorId: input.doctorId,
+            actorRole: 'doctor',
+            action: 'PRESCRIPTION_CREATED',
+            resourceType: 'prescription',
+            resourceId: prescriptionId,
+            resourceOwnerId: input.patientId,
+            metadata: {
+                prescriptionNumber,
+                payloadHash,
+                // NEVER log the actual medication data
+            },
+            ipAddress,
+            userAgent,
+        });
+
+        return {
+            id: prescriptionId,
+            prescriptionNumber,
+            status: 'active',
+            expiresAt,
+            payloadHash,
+        };
+    }
+
+    /**
+     * Get prescriptions for a patient (decrypted)
+     */
+    async getPatientPrescriptions(patientId: string, requesterId: string, requesterRole: string) {
+        // Check if requester is the patient themselves or their doctor
+        let query: string;
+        let params: string[];
+
+        if (requesterRole === 'patient') {
+            query = 'SELECT p.*, u.full_name as doctor_name FROM prescriptions p JOIN users u ON p.doctor_id = u.id WHERE p.patient_id = $1 ORDER BY p.created_at DESC';
+            params = [patientId];
+        } else if (requesterRole === 'doctor') {
+            query = 'SELECT p.*, u.full_name as doctor_name FROM prescriptions p JOIN users u ON p.doctor_id = u.id WHERE p.patient_id = $1 AND p.doctor_id = $2 ORDER BY p.created_at DESC';
+            params = [patientId, requesterId];
+        } else {
+            throw new Error('Unauthorized');
+        }
+
+        const result = await pool.query(query, params);
+
+        // Decrypt each prescription
+        const prescriptions = result.rows.map(row => {
+            const decryptedPayload = encryptionService.decrypt(
+                row.encrypted_payload,
+                row.encryption_iv,
+                row.encryption_tag
+            );
+
+            return {
+                id: row.id,
+                prescriptionNumber: row.prescription_number,
+                doctorName: row.doctor_name,
+                payload: JSON.parse(decryptedPayload),
+                status: row.status,
+                prescribedAt: row.prescribed_at,
+                expiresAt: row.expires_at,
+                dispensedAt: row.dispensed_at,
+                payloadHash: row.payload_hash,
+                isSigned: !!row.doctor_signature,
+            };
+        });
+
+        // Audit the access
+        await auditService.log({
+            actorId: requesterId,
+            actorRole: requesterRole as any,
+            action: 'PRESCRIPTIONS_VIEWED',
+            resourceType: 'prescription',
+            resourceOwnerId: patientId,
+            metadata: { count: prescriptions.length },
+        });
+
+        return prescriptions;
+    }
+
+    /**
+     * Generate QR code for a prescription
+     * Contains prescription ID + verification hash
+     */
+    async generateQR(prescriptionId: string, patientId: string): Promise<string> {
+        const result = await pool.query(
+            'SELECT * FROM prescriptions WHERE id = $1 AND patient_id = $2',
+            [prescriptionId, patientId]
+        );
+
+        if (result.rows.length === 0) {
+            throw new Error('Prescription not found');
+        }
+
+        const prescription = result.rows[0];
+
+        if (prescription.status !== 'active') {
+            throw new Error(`Prescription is ${prescription.status}`);
+        }
+
+        // QR contains: prescription ID + hash for verification
+        const qrData = JSON.stringify({
+            prescriptionId: prescription.id,
+            prescriptionNumber: prescription.prescription_number,
+            payloadHash: prescription.payload_hash,
+            doctorId: prescription.doctor_id,
+            patientId: prescription.patient_id,
+            timestamp: Date.now(),
+        });
+
+        const qrCode = await QRCode.toDataURL(qrData, {
+            errorCorrectionLevel: 'H',
+            width: 300,
+        });
+
+        await auditService.log({
+            actorId: patientId,
+            actorRole: 'patient',
+            action: 'QR_GENERATED',
+            resourceType: 'prescription',
+            resourceId: prescriptionId,
+            resourceOwnerId: patientId,
+        });
+
+        return qrCode;
+    }
+
+    /**
+     * Get a single prescription by ID (for pharmacist verification)
+     */
+    async getById(prescriptionId: string) {
+        const result = await pool.query(
+            `SELECT p.*, 
+                    d.full_name as doctor_name, d.public_key as doctor_public_key,
+                    pt.full_name as patient_name
+             FROM prescriptions p
+             JOIN users d ON p.doctor_id = d.id
+             JOIN users pt ON p.patient_id = pt.id
+             WHERE p.id = $1`,
+            [prescriptionId]
+        );
+
+        if (result.rows.length === 0) {
+            throw new Error('Prescription not found');
+        }
+
+        return result.rows[0];
+    }
+}
+
+export const prescriptionService = new PrescriptionService();
+backend/src/modules/prescription/prescription.controller.ts
+TypeScript
+
+import { Response } from 'express';
+import { AuthenticatedRequest } from '../../middleware/auth';
+import { prescriptionService } from './prescription.service';
+
+export class PrescriptionController {
+
+    static async create(req: AuthenticatedRequest, res: Response) {
+        try {
+            const result = await prescriptionService.create(
+                {
+                    doctorId: req.user!.id,
+                    patientId: req.body.patient_id,
+                    medicationName: req.body.medication_name,
+                    dosage: req.body.dosage,
+                    frequency: req.body.frequency,
+                    duration: req.body.duration,
+                    notes: req.body.notes,
+                    expiresInDays: req.body.expires_in_days,
+                },
+                req.ip || '',
+                req.headers['user-agent'] || ''
+            );
+
+            res.status(201).json({
+                message: 'Prescription created and signed',
+                prescription: result,
+            });
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    }
+
+    static async getMyPrescriptions(req: AuthenticatedRequest, res: Response) {
+        try {
+            const prescriptions = await prescriptionService.getPatientPrescriptions(
+                req.user!.id,
+                req.user!.id,
+                req.user!.role
+            );
+            res.json({ prescriptions });
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    }
+
+    static async getPatientPrescriptions(req: AuthenticatedRequest, res: Response) {
+        try {
+            const prescriptions = await prescriptionService.getPatientPrescriptions(
+                req.params.patientId,
+                req.user!.id,
+                req.user!.role
+            );
+            res.json({ prescriptions });
+        } catch (error: any) {
+            res.status(403).json({ error: error.message });
+        }
+    }
+
+    static async generateQR(req: AuthenticatedRequest, res: Response) {
+        try {
+            const qrCode = await prescriptionService.generateQR(
+                req.params.prescriptionId,
+                req.user!.id
+            );
+            res.json({ qrCode });
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    }
+
+    static async getPatients(req: AuthenticatedRequest, res: Response) {
+        try {
+            const { Pool } = require('pg');
+            const pool = require('../../config/database').default;
+            const result = await pool.query(
+                "SELECT id, full_name, email FROM users WHERE role = 'patient' AND is_active = true"
+            );
+            res.json({ patients: result.rows });
+        } catch (error: any) {
+            res.status(500).json({ error: error.message });
+        }
+    }
+}
+backend/src/modules/prescription/prescription.routes.ts
+TypeScript
+
+import { Router } from 'express';
+import { PrescriptionController } from './prescription.controller';
+import { authenticate, authorize } from '../../middleware/auth';
+import { adaptiveAuth } from '../../middleware/adaptiveAuth';
+import { prescriptionLimiter } from '../../middleware/rateLimiter';
+import { validate, prescriptionSchema } from '../../middleware/inputValidator';
+
+const router = Router();
+
+// Doctor creates prescription
+router.post(
+    '/',
+    authenticate,
+    authorize('doctor'),
+    adaptiveAuth('high'),          // High sensitivity — re-evaluate risk
+    prescriptionLimiter,
+    validate(prescriptionSchema),
+    PrescriptionController.create
+);
+
+// Patient views their prescriptions
+router.get(
+    '/my',
+    authenticate,
+    authorize('patient'),
+    PrescriptionController.getMyPrescriptions
+);
+
+// Doctor views their patient's prescriptions
+router.get(
+    '/patient/:patientId',
+    authenticate,
+    authorize('doctor'),
+    adaptiveAuth('medium'),
+    PrescriptionController.getPatientPrescriptions
+);
+
+// Patient generates QR code for pharmacist
+router.get(
+    '/:prescriptionId/qr',
+    authenticate,
+    authorize('patient'),
+    PrescriptionController.generateQR
+);
+
+// Doctor gets list of patients
+router.get(
+    '/patients',
+    authenticate,
+    authorize('doctor'),
+    PrescriptionController.getPatients
+);
+
+export default router;
+4.8 Dispensing Module (Pharmacist Verification)
+backend/src/modules/dispensing/dispensing.service.ts
+TypeScript
+
+import { v4 as uuid } from 'uuid';
+import pool from '../../config/database';
+import { encryptionService } from '../../crypto/encryption';
+import { SigningService } from '../../crypto/signing';
+import { auditService } from '../audit/audit.service';
+
+class DispensingService {
+
+    /**
+     * Verify and dispense a prescription
+     * 1. Look up prescription
+     * 2. Verify doctor's digital signature (TAMPER PROOF!)
+     * 3. Check status and expiry
+     * 4. Mark as dispensed
+     * 5. Audit everything
+     */
+    async verifyAndDispense(
+        prescriptionId: string,
+        pharmacistId: string,
+        ipAddress: string,
+        userAgent: string
+    ) {
+        const client = await pool.connect();
+
+        try {
+            await client.query('BEGIN');
+
+            // Get prescription with doctor's public key
+            const result = await client.query(
+                `SELECT p.*, d.public_key as doctor_public_key, 
+                        d.full_name as doctor_name,
+                        pt.full_name as patient_name
+                 FROM prescriptions p
+                 JOIN users d ON p.doctor_id = d.id
+                 JOIN users pt ON p.patient_id = pt.id
+                 WHERE p.id = $1
+                 FOR UPDATE`,  // Lock row to prevent double dispensing
+                [prescriptionId]
+            );
+
+            if (result.rows.length === 0) {
+                throw new Error('Prescription not found');
+            }
+
+            const prescription = result.rows[0];
+
+            // CHECK 1: Status
+            if (prescription.status !== 'active') {
+                await auditService.log({
+                    actorId: pharmacistId,
+                    actorRole: 'pharmacist',
+                    action: 'DISPENSE_REJECTED_STATUS',
+                    resourceType: 'prescription',
+                    resourceId: prescriptionId,
+                    resourceOwnerId: prescription.patient_id,
+                    metadata: { reason: `Status is ${prescription.status}` },
+                    ipAddress,
+                    userAgent,
+                });
+                throw new Error(`Prescription is ${prescription.status}. Cannot dispense.`);
+            }
+
+            // CHECK 2: Expiry
+            if (new Date(prescription.expires_at) < new Date()) {
+                await client.query(
+                    "UPDATE prescriptions SET status = 'expired' WHERE id = $1",
+                    [prescriptionId]
+                );
+                throw new Error('Prescription has expired');
+            }
+
+            // CHECK 3: VERIFY DIGITAL SIGNATURE
+            // This is the tamper-proof check!
+            // If ANYONE modified the prescription, the signature won't match
+            const signatureValid = SigningService.verify(
+                prescription.payload_hash,
+                prescription.doctor_signature,
+                prescription.doctor_public_key
+            );
+
+            if (!signatureValid) {
+                await auditService.log({
+                    actorId: pharmacistId,
+                    actorRole: 'pharmacist',
+                    action: 'SIGNATURE_VERIFICATION_FAILED',
+                    resourceType: 'prescription',
+                    resourceId: prescriptionId,
+                    resourceOwnerId: prescription.patient_id,
+                    metadata: { alert: 'POSSIBLE TAMPERING DETECTED' },
+                    ipAddress,
+                    userAgent,
+                });
+                throw new Error('⚠️ SIGNATURE VERIFICATION FAILED — Prescription may have been tampered with!');
+            }
+
+            // CHECK 4: Verify payload hash
+            const decryptedPayload = encryptionService.decrypt(
+                prescription.encrypted_payload,
+                prescription.encryption_iv,
+                prescription.encryption_tag
+            );
+            const currentHash = SigningService.hash(decryptedPayload);
+
+            if (currentHash !== prescription.payload_hash) {
+                throw new Error('⚠️ PAYLOAD INTEGRITY CHECK FAILED — Data has been modified!');
+            }
+
+            // ALL CHECKS PASSED — Dispense!
+            const verificationHash = SigningService.hash(
+                `${prescriptionId}-${pharmacistId}-${Date.now()}`
+            );
+
+            // Update prescription status
+            await client.query(
+                "UPDATE prescriptions SET status = 'dispensed', dispensed_at = NOW() WHERE id = $1",
+                [prescriptionId]
+            );
+
+            // Create dispensing record
+            const dispensingId = uuid();
+            await client.query(
+                `INSERT INTO dispensing_records (id, prescription_id, pharmacist_id, 
+                 signature_verified, verification_hash)
+                 VALUES ($1, $2, $3, $4, $5)`,
+                [dispensingId, prescriptionId, pharmacistId, true, verificationHash]
+            );
+
+            await client.query('COMMIT');
+
+            // Audit the dispensing
+            await auditService.log({
+                actorId: pharmacistId,
+                actorRole: 'pharmacist',
+                action: 'PRESCRIPTION_DISPENSED',
+                resourceType: 'prescription',
+                resourceId: prescriptionId,
+                resourceOwnerId: prescription.patient_id,
+                metadata: {
+                    signatureVerified: true,
+                    integrityVerified: true,
+                    verificationHash,
+                    dispensingId,
+                },
+                ipAddress,
+                userAgent,
+            });
+
+            return {
+                dispensingId,
+                prescriptionNumber: prescription.prescription_number,
+                status: 'dispensed',
+                doctorName: prescription.doctor_name,
+                patientName: prescription.patient_name,
+                signatureVerified: true,
+                integrityVerified: true,
+                payload: JSON.parse(decryptedPayload),
+                dispensedAt: new Date().toISOString(),
+            };
+        } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+        } finally {
+            client.release();
+        }
+    }
+
+    /**
+     * Just verify a prescription (without dispensing)
+     */
+    async verify(prescriptionId: string, pharmacistId: string) {
+        const result = await pool.query(
+            `SELECT p.*, d.public_key as doctor_public_key, 
+                    d.full_name as doctor_name,
+                    pt.full_name as patient_name
+             FROM prescriptions p
+             JOIN users d ON p.doctor_id = d.id
+             JOIN users pt ON p.patient_id = pt.id
+             WHERE p.id = $1`,
+            [prescriptionId]
+        );
+
+        if (result.rows.length === 0) {
+            throw new Error('Prescription not found');
+        }
+
+        const prescription = result.rows[0];
+
+        // Verify signature
+        const signatureValid = SigningService.verify(
+            prescription.payload_hash,
+            prescription.doctor_signature,
+            prescription.doctor_public_key
+        );
+
+        // Decrypt and verify integrity
+        const decryptedPayload = encryptionService.decrypt(
+            prescription.encrypted_payload,
+            prescription.encryption_iv,
+            prescription.encryption_tag
+        );
+        const currentHash = SigningService.hash(decryptedPayload);
+        const integrityValid = currentHash === prescription.payload_hash;
+
+        await auditService.log({
+            actorId: pharmacistId,
+            actorRole: 'pharmacist',
+            action: 'PRESCRIPTION_VERIFIED',
+            resourceType: 'prescription',
+            resourceId: prescriptionId,
+            resourceOwnerId: prescription.patient_id,
+            metadata: { signatureValid, integrityValid },
+        });
+
+        return {
+            prescriptionId: prescription.id,
+            prescriptionNumber: prescription.prescription_number,
+            doctorName: prescription.doctor_name,
+            patientName: prescription.patient_name,
+            status: prescription.status,
+            expiresAt: prescription.expires_at,
+            signatureVerified: signatureValid,
+            integrityVerified: integrityValid,
+            payload: JSON.parse(decryptedPayload),
+            canDispense: prescription.status === 'active' && 
+                         signatureValid && integrityValid &&
+                         new Date(prescription.expires_at) > new Date(),
+        };
+    }
+
+    /**
+     * Get dispensing history for pharmacist
+     */
+    async getDispensingHistory(pharmacistId: string) {
+        const result = await pool.query(
+            `SELECT dr.*, p.prescription_number, 
+                    pt.full_name as patient_name,
+                    d.full_name as doctor_name
+             FROM dispensing_records dr
+             JOIN prescriptions p ON dr.prescription_id = p.id
+             JOIN users pt ON p.patient_id = pt.id
+             JOIN users d ON p.doctor_id = d.id
+             WHERE dr.pharmacist_id = $1
+             ORDER BY dr.dispensed_at DESC
+             LIMIT 50`,
+            [pharmacistId]
+        );
+        return result.rows;
+    }
+}
+
+export const dispensingService = new DispensingService();
+backend/src/modules/dispensing/dispensing.controller.ts
+TypeScript
+
+import { Response } from 'express';
+import { AuthenticatedRequest } from '../../middleware/auth';
+import { dispensingService } from './dispensing.service';
+
+export class DispensingController {
+
+    static async verify(req: AuthenticatedRequest, res: Response) {
+        try {
+            const result = await dispensingService.verify(
+                req.params.prescriptionId,
+                req.user!.id
+            );
+            res.json({ verification: result });
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    }
+
+    static async dispense(req: AuthenticatedRequest, res: Response) {
+        try {
+            const result = await dispensingService.verifyAndDispense(
+                req.params.prescriptionId,
+                req.user!.id,
+                req.ip || '',
+                req.headers['user-agent'] || ''
+            );
+            res.json({
+                message: 'Prescription dispensed successfully',
+                dispensing: result,
+            });
+        } catch (error: any) {
+            const status = error.message.includes('TAMPERING') || 
+                          error.message.includes('INTEGRITY') ? 403 : 400;
+            res.status(status).json({ error: error.message });
+        }
+    }
+
+    static async history(req: AuthenticatedRequest, res: Response) {
+        try {
+            const records = await dispensingService.getDispensingHistory(req.user!.id);
+            res.json({ records });
+        } catch (error: any) {
+            res.status(500).json({ error: error.message });
+        }
+    }
+}
+backend/src/modules/dispensing/dispensing.routes.ts
+TypeScript
+
+import { Router } from 'express';
+import { DispensingController } from './dispensing.controller';
+import { authenticate, authorize } from '../../middleware/auth';
+import { adaptiveAuth } from '../../middleware/adaptiveAuth';
+
+const router = Router();
+
+// Pharmacist verifies a prescription (read-only check)
+router.get(
+    '/verify/:prescriptionId',
+    authenticate,
+    authorize('pharmacist'),
+    DispensingController.verify
+);
+
+// Pharmacist dispenses (verify + mark dispensed)
+router.post(
+    '/dispense/:prescriptionId',
+    authenticate,
+    authorize('pharmacist'),
+    adaptiveAuth('high'),
+    DispensingController.dispense
+);
+
+// Pharmacist view dispensing history
+router.get(
+    '/history',
+    authenticate,
+    authorize('pharmacist'),
+    DispensingController.history
+);
+
+export default router;
+4.9 Consent Module (GDPR Compliance)
+backend/src/modules/consent/consent.service.ts
+TypeScript
+
+// =============================================
+// GDPR Art. 7 — Consent Management
+// GDPR Art. 17 — Right to Erasure (Crypto-Shredding)
+// =============================================
+
+import { v4 as uuid } from 'uuid';
+import pool from '../../config/database';
+import { auditService } from '../audit/audit.service';
+
+class ConsentService {
+
+    async grantConsent(
+        patientId: string,
+        grantedTo: string,
+        purpose: string,
+        dataCategories: string[],
+        expiresInDays: number
+    ) {
+        const consentId = uuid();
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + expiresInDays);
+
+        await pool.query(
+            `INSERT INTO consent_records 
+             (id, patient_id, granted_to, purpose, data_categories, expires_at)
+             VALUES ($1, $2, $3, $4, $5, $6)`,
+            [consentId, patientId, grantedTo, purpose, dataCategories, expiresAt]
+        );
+
+        await auditService.log({
+            actorId: patientId,
+            actorRole: 'patient',
+            action: 'CONSENT_GRANTED',
+            resourceType: 'consent',
+            resourceId: consentId,
+            resourceOwnerId: patientId,
+            metadata: { grantedTo, purpose, dataCategories, expiresAt },
+        });
+
+        return { id: consentId, status: 'active', expiresAt };
+    }
+
+    async revokeConsent(consentId: string, patientId: string) {
+        const result = await pool.query(
+            `UPDATE consent_records 
+             SET status = 'revoked', revoked_at = NOW() 
+             WHERE id = $1 AND patient_id = $2 AND status = 'active'
+             RETURNING *`,
+            [consentId, patientId]
+        );
+
+        if (result.rows.length === 0) {
+            throw new Error('Consent not found or already revoked');
+        }
+
+        await auditService.log({
+            actorId: patientId,
+            actorRole: 'patient',
+            action: 'CONSENT_REVOKED',
+            resourceType: 'consent',
+            resourceId: consentId,
+            resourceOwnerId: patientId,
+        });
+
+        return { id: consentId, status: 'revoked' };
+    }
+
+    async getMyConsents(patientId: string) {
+        const result = await pool.query(
+            `SELECT c.*, u.full_name as granted_to_name, u.role as granted_to_role
+             FROM consent_records c
+             JOIN users u ON c.granted_to = u.id
+             WHERE c.patient_id = $1
+             ORDER BY c.granted_at DESC`,
+            [patientId]
+        );
+        return result.rows;
+    }
+
+    /**
+     * GDPR Art. 17 — Right to Erasure via Crypto-Shredding
+     * Instead of finding all records, we make them unreadable
+     */
+    async requestDataDeletion(patientId: string) {
+        // In a full implementation, we would destroy the patient's
+        // encryption key, making all their encrypted data permanently unreadable.
+        // For this demo, we'll mark prescriptions and revoke all consents.
+
+        await pool.query(
+            "UPDATE prescriptions SET status = 'cancelled' WHERE patient_id = $1",
+            [patientId]
+        );
+
+        await pool.query(
+            "UPDATE consent_records SET status = 'revoked', revoked_at = NOW() WHERE patient_id = $1 AND status = 'active'",
+            [patientId]
+        );
+
+        await pool.query(
+            "UPDATE users SET is_active = false WHERE id = $1",
+            [patientId]
+        );
+
+        await auditService.log({
+            actorId: patientId,
+            actorRole: 'patient',
+            action: 'DATA_DELETION_REQUESTED',
+            resourceType: 'user',
+            resourceId: patientId,
+            resourceOwnerId: patientId,
+            metadata: { gdprArticle: '17', method: 'crypto_shredding' },
+        });
+
+        return { message: 'Data deletion request processed. All data has been made inaccessible.' };
+    }
+}
+
+export const consentService = new ConsentService();
+backend/src/modules/consent/consent.controller.ts
+TypeScript
+
+import { Response } from 'express';
+import { AuthenticatedRequest } from '../../middleware/auth';
+import { consentService } from './consent.service';
+
+export class ConsentController {
+
+    static async grant(req: AuthenticatedRequest, res: Response) {
+        try {
+            const result = await consentService.grantConsent(
+                req.user!.id,
+                req.body.granted_to,
+                req.body.purpose,
+                req.body.data_categories,
+                req.body.expires_in_days
+            );
+            res.status(201).json({ consent: result });
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    }
+
+    static async revoke(req: AuthenticatedRequest, res: Response) {
+        try {
+            const result = await consentService.revokeConsent(
+                req.params.consentId,
+                req.user!.id
+            );
+            res.json({ consent: result });
+        } catch (error: any) {
+            res.status(400).json({ error: error.message });
+        }
+    }
+
+    static async getMyConsents(req: AuthenticatedRequest, res: Response) {
+        try {
+            const consents = await consentService.getMyConsents(req.user!.id);
+            res.json({ consents });
+        } catch (error: any) {
+            res.status(500).json({ error: error.message });
+        }
+    }
+
+    static async requestDeletion(req: AuthenticatedRequest, res: Response) {
+        try {
+            const result = await consentService.requestDataDeletion(req.user!.id);
+            res.json(result);
+        } catch (error: any) {
+            res.status(500).json({ error: error.message });
+        }
+    }
+}
+backend/src/modules/consent/consent.routes.ts
+TypeScript
+
+import { Router } from 'express';
+import { ConsentController } from './consent.controller';
+import { authenticate, authorize } from '../../middleware/auth';
+import { validate, consentSchema } from '../../middleware/inputValidator';
+
+const router = Router();
+
+router.post('/', authenticate, authorize('patient'), validate(consentSchema), ConsentController.grant);
+router.delete('/:consentId', authenticate, authorize('patient'), ConsentController.revoke);
+router.get('/my', authenticate, authorize('patient'), ConsentController.getMyConsents);
+router.post('/delete-my-data', authenticate, authorize('patient'), ConsentController.requestDeletion);
+
+export default router;
+4.10 Main App & Routes
+backend/src/routes/index.ts
+TypeScript
+
+import { Router } from 'express';
+import authRoutes from '../modules/auth/auth.routes';
+import prescriptionRoutes from '../modules/prescription/prescription.routes';
+import dispensingRoutes from '../modules/dispensing/dispensing.routes';
+import auditRoutes from '../modules/audit/audit.routes';
+import consentRoutes from '../modules/consent/consent.routes';
+
+const router = Router();
+
+router.use('/auth', authRoutes);
+router.use('/prescriptions', prescriptionRoutes);
+router.use('/dispensing', dispensingRoutes);
+router.use('/audit', auditRoutes);
+router.use('/consent', consentRoutes);
+
+// Health check
+router.get('/health', (req, res) => {
+    res.json({ 
+        status: 'healthy', 
+        timestamp: new Date().toISOString(),
+        version: '1.0.0'
+    });
+});
+
+export default router;
+backend/src/app.ts
+TypeScript
+
+import express from 'express';
+import helmet from 'helmet';
+import cors from 'cors';
+import cookieParser from 'cookie-parser';
+import morgan from 'morgan';
+import routes from './routes';
+import { apiLimiter } from './middleware/rateLimiter';
+import { errorHandler } from './middleware/errorHandler';
+
+const app = express();
+
+// =============================================
+// SECURITY MIDDLEWARE STACK
+// =============================================
+
+// Security headers (XSS, Clickjacking, MIME sniffing, etc.)
+app.use(helmet({
+    contentSecurityPolicy: {
+        directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", "data:"],
+            connectSrc: ["'self'"],
+            frameSrc: ["'none'"],
+            objectSrc: ["'none'"],
+        },
+    },
+    hsts: {
+        maxAge: 31536000,
+        includeSubDomains: true,
+        preload: true,
+    },
+}));
+
+// CORS - restrictive
+app.use(cors({
+    origin: process.env.ALLOWED_ORIGINS?.split(',') || ['http://localhost:5173'],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+}));
+
+// Rate limiting
+app.use('/api/', apiLimiter);
+
+// Body parsing with size limits
+app.use(express.json({ limit: '10kb' }));
+app.use(cookieParser());
+
+// Logging (in production, use structured logging)
+app.use(morgan('combined'));
+
+// Remove X-Powered-By header
+app.disable('x-powered-by');
+
+// =============================================
+// ROUTES
+// =============================================
+app.use('/api', routes);
+
+// 404 handler
+app.use((req, res) => {
+    res.status(404).json({ error: 'Not found', code: 'NOT_FOUND' });
+});
+
+// Error handler
+app.use(errorHandler);
+
+export default app;
+backend/src/server.ts
+TypeScript
+
+import dotenv from 'dotenv';
+dotenv.config();
+
+import app from './app';
+
+const PORT = process.env.PORT || 3000;
+
+app.listen(PORT, () => {
+    console.log(`
+    ╔═══════════════════════════════════════════╗
+    ║          SplitRx Server Running           ║
+    ║                                           ║
+    ║   Port: ${PORT}                              ║
+    ║   Env:  ${process.env.NODE_ENV || 'development'}                   ║
+    ║                                           ║
+    ║   🔒 Helmet: Active                       ║
+    ║   🚦 Rate Limiter: Active                 ║
+    ║   📝 Audit Logging: Active                ║
+    ║   🔐 Encryption: AES-256-GCM              ║
+    ║   ✍️  Signatures: RSA-SHA256               ║
+    ╚═══════════════════════════════════════════╝
+    `);
+});
+Step 5: Frontend (React)
+5.1 Setup Frontend
+Bash
+
+cd frontend
+npm create vite@latest . -- --template react-ts
+npm install axios react-router-dom @types/react-router-dom
+npm install html5-qrcode     # For QR scanning
+frontend/src/services/api.ts
+TypeScript
+
+import axios from 'axios';
+
+const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+
+const api = axios.create({
+    baseURL: API_BASE,
+    withCredentials: true,
+    headers: { 'Content-Type': 'application/json' },
+});
+
+// Auto-attach access token
+api.interceptors.request.use((config) => {
+    const token = localStorage.getItem('accessToken');
+    if (token) {
+        config.headers.Authorization = `Bearer ${token}`;
+    }
+    return config;
+});
+
+// Auto-refresh on 401
+api.interceptors.response.use(
+    (response) => response,
+    async (error) => {
+        if (error.response?.status === 401 && 
+            error.response?.data?.code === 'TOKEN_EXPIRED') {
+            try {
+                const { data } = await axios.post(
+                    `${API_BASE}/auth/refresh`,
+                    {},
+                    { withCredentials: true }
+                );
+                localStorage.setItem('accessToken', data.accessToken);
+                error.config.headers.Authorization = `Bearer ${data.accessToken}`;
+                return api(error.config);
+            } catch {
+                localStorage.removeItem('accessToken');
+                window.location.href = '/login';
+            }
+        }
+        return Promise.reject(error);
+    }
+);
+
+export default api;
+
+// ---- API Functions ----
+
+export const authAPI = {
+    register: (data: any) => api.post('/auth/register', data),
+    login: (data: any) => api.post('/auth/login', data),
+    logout: () => api.post('/auth/logout'),
+    me: () => api.get('/auth/me'),
+};
+
+export const prescriptionAPI = {
+    create: (data: any) => api.post('/prescriptions', data),
+    getMyPrescriptions: () => api.get('/prescriptions/my'),
+    getPatientPrescriptions: (patientId: string) => 
+        api.get(`/prescriptions/patient/${patientId}`),
+    generateQR: (prescriptionId: string) => 
+        api.get(`/prescriptions/${prescriptionId}/qr`),
+    getPatients: () => api.get('/prescriptions/patients'),
+};
+
+export const dispensingAPI = {
+    verify: (prescriptionId: string) => 
+        api.get(`/dispensing/verify/${prescriptionId}`),
+    dispense: (prescriptionId: string) => 
+        api.post(`/dispensing/dispense/${prescriptionId}`),
+    history: () => api.get('/dispensing/history'),
+};
+
+export const consentAPI = {
+    getMyConsents: () => api.get('/consent/my'),
+    grant: (data: any) => api.post('/consent', data),
+    revoke: (consentId: string) => api.delete(`/consent/${consentId}`),
+    deleteMyData: () => api.post('/consent/delete-my-data'),
+};
+
+export const auditAPI = {
+    getMyLogs: () => api.get('/audit/my-logs'),
+    verifyChain: () => api.get('/audit/verify'),
+    getResourceLogs: (resourceId: string) => 
+        api.get(`/audit/resource/${resourceId}`),
+};
+frontend/src/context/AuthContext.tsx
+React
+
+import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { authAPI } from '../services/api';
+
+interface User {
+    id: string;
+    email: string;
+    full_name: string;
+    role: 'doctor' | 'patient' | 'pharmacist';
+}
+
+interface AuthContextType {
+    user: User | null;
+    login: (email: string, password: string) => Promise<void>;
+    register: (data: any) => Promise<void>;
+    logout: () => Promise<void>;
+    loading: boolean;
+}
+
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
+    const [user, setUser] = useState<User | null>(null);
+    const [loading, setLoading] = useState(true);
+
+    useEffect(() => {
+        const token = localStorage.getItem('accessToken');
+        if (token) {
+            authAPI.me()
+                .then(res => setUser(res.data.user))
+                .catch(() => localStorage.removeItem('accessToken'))
+                .finally(() => setLoading(false));
+        } else {
+            setLoading(false);
+        }
+    }, []);
+
+    const login = async (email: string, password: string) => {
+        const { data } = await authAPI.login({ email, password });
+        localStorage.setItem('accessToken', data.accessToken);
+        setUser(data.user);
+    };
+
+    const register = async (regData: any) => {
+        await authAPI.register(regData);
+    };
+
+    const logout = async () => {
+        await authAPI.logout();
+        localStorage.removeItem('accessToken');
+        setUser(null);
+    };
+
+    return (
+        <AuthContext.Provider value={{ user, login, register, logout, loading }}>
+            {children}
+        </AuthContext.Provider>
+    );
+};
+
+export const useAuth = () => {
+    const context = useContext(AuthContext);
+    if (!context) throw new Error('useAuth must be used within AuthProvider');
+    return context;
+};
+frontend/src/App.tsx
+React
+
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import Login from './components/Auth/Login';
+import Register from './components/Auth/Register';
+import DoctorDashboard from './components/Doctor/DoctorDashboard';
+import PatientDashboard from './components/Patient/PatientDashboard';
+import PharmacistDashboard from './components/Pharmacist/PharmacistDashboard';
+import Navbar from './components/Common/Navbar';
+
+const ProtectedRoute = ({ children, roles }: { children: React.ReactNode; roles?: string[] }) => {
+    const { user, loading } = useAuth();
+    if (loading) return <div>Loading...</div>;
+    if (!user) return <Navigate to="/login" />;
+    if (roles && !roles.includes(user.role)) return <Navigate to="/" />;
+    return <>{children}</>;
+};
+
+const RoleRedirect = () => {
+    const { user } = useAuth();
+    if (!user) return <Navigate to="/login" />;
+    switch (user.role) {
+        case 'doctor': return <Navigate to="/doctor" />;
+        case 'patient': return <Navigate to="/patient" />;
+        case 'pharmacist': return <Navigate to="/pharmacist" />;
+        default: return <Navigate to="/login" />;
+    }
+};
+
+function App() {
+    return (
+        <AuthProvider>
+            <BrowserRouter>
+                <Navbar />
+                <div style={{ maxWidth: '1200px', margin: '0 auto', padding: '20px' }}>
+                    <Routes>
+                        <Route path="/" element={<RoleRedirect />} />
+                        <Route path="/login" element={<Login />} />
+                        <Route path="/register" element={<Register />} />
+                        <Route path="/doctor/*" element={
+                            <ProtectedRoute roles={['doctor']}>
+                                <DoctorDashboard />
+                            </ProtectedRoute>
+                        } />
+                        <Route path="/patient/*" element={
+                            <ProtectedRoute roles={['patient']}>
+                                <PatientDashboard />
+                            </ProtectedRoute>
+                        } />
+                        <Route path="/pharmacist/*" element={
+                            <ProtectedRoute roles={['pharmacist']}>
+                                <PharmacistDashboard />
+                            </ProtectedRoute>
+                        } />
+                    </Routes>
+                </div>
+            </BrowserRouter>
+        </AuthProvider>
+    );
+}
+
+export default App;
+frontend/src/components/Auth/Login.tsx
+React
+
+import React, { useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { useNavigate, Link } from 'react-router-dom';
+
+const Login = () => {
+    const [email, setEmail] = useState('');
+    const [password, setPassword] = useState('');
+    const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
+    const { login } = useAuth();
+    const navigate = useNavigate();
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setError('');
+        setLoading(true);
+        try {
+            await login(email, password);
+            navigate('/');
+        } catch (err: any) {
+            setError(err.response?.data?.error || 'Login failed');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <div style={{ maxWidth: '400px', margin: '100px auto' }}>
+            <h1>🔐 SplitRx Login</h1>
+            <p>Tamper-Proof Prescription System</p>
+            {error && <div style={{ color: 'red', padding: '10px', background: '#fee', borderRadius: '5px' }}>{error}</div>}
+            <form onSubmit={handleSubmit}>
+                <div style={{ marginBottom: '15px' }}>
+                    <label>Email</label>
+                    <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                        required style={{ width: '100%', padding: '10px', borderRadius: '5px', border: '1px solid #ccc' }} />
+                </div>
+                <div style={{ marginBottom: '15px' }}>
+                    <label>Password</label>
+                    <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+                        required style={{ width: '100%', padding: '10px', borderRadius: '5px', border: '1px solid #ccc' }} />
+                </div>
+                <button type="submit" disabled={loading}
+                    style={{ width: '100%', padding: '12px', background: '#007bff', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '16px' }}>
+                    {loading ? 'Logging in...' : 'Login'}
+                </button>
+            </form>
+            <p style={{ marginTop: '15px' }}>
+                Don't have an account? <Link to="/register">Register</Link>
+            </p>
+        </div>
+    );
+};
+
+export default Login;
+frontend/src/components/Auth/Register.tsx
+React
+
+import React, { useState } from 'react';
+import { useAuth } from '../../context/AuthContext';
+import { useNavigate, Link } from 'react-router-dom';
+
+const Register = () => {
+    const [form, setForm] = useState({
+        email: '', password: '', full_name: '', role: 'patient' as string
+    });
+    const [error, setError] = useState('');
+    const [success, setSuccess] = useState(false);
+    const { register } = useAuth();
+    const navigate = useNavigate();
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setError('');
+        try {
+            await register(form);
+            setSuccess(true);
+            setTimeout(() => navigate('/login'), 2000);
+        } catch (err: any) {
+            setError(err.response?.data?.error || err.response?.data?.details?.map((d: any) => d.message).join(', ') || 'Registration failed');
+        }
+    };
+
+    if (success) return <div style={{ textAlign: 'center', marginTop: '100px' }}>
+        <h2>✅ Registration Successful!</h2>
+        <p>Redirecting to login...</p>
+    </div>;
+
+    return (
+        <div style={{ maxWidth: '400px', margin: '80px auto' }}>
+            <h1>📝 Register</h1>
+            {error && <div style={{ color: 'red', padding: '10px', background: '#fee', borderRadius: '5px', marginBottom: '15px' }}>{error}</div>}
+            <form onSubmit={handleSubmit}>
+                <div style={{ marginBottom: '15px' }}>
+                    <label>Full Name</label>
+                    <input type="text" value={form.full_name}
+                        onChange={e => setForm({ ...form, full_name: e.target.value })}
+                        required style={{ width: '100%', padding: '10px', borderRadius: '5px', border: '1px solid #ccc' }} />
+                </div>
+                <div style={{ marginBottom: '15px' }}>
+                    <label>Email</label>
+                    <input type="email" value={form.email}
+                        onChange={e => setForm({ ...form, email: e.target.value })}
+                        required style={{ width: '100%', padding: '10px', borderRadius: '5px', border: '1px solid #ccc' }} />
+                </div>
+                <div style={{ marginBottom: '15px' }}>
+                    <label>Password</label>
+                    <input type="password" value={form.password}
+                        onChange={e => setForm({ ...form, password: e.target.value })}
+                        required style={{ width: '100%', padding: '10px', borderRadius: '5px', border: '1px solid #ccc' }} />
+                    <small style={{ color: '#666' }}>Min 8 chars, uppercase, lowercase, number, special char</small>
+                </div>
+                <div style={{ marginBottom: '15px' }}>
+                    <label>Role</label>
+                    <select value={form.role}
+                        onChange={e => setForm({ ...form, role: e.target.value })}
+                        style={{ width: '100%', padding: '10px', borderRadius: '5px', border: '1px solid #ccc' }}>
+                        <option value="patient">🧑 Patient</option>
+                        <option value="doctor">👨‍⚕️ Doctor</option>
+                        <option value="pharmacist">💊 Pharmacist</option>
+                    </select>
+                </div>
+                <button type="submit"
+                    style={{ width: '100%', padding: '12px', background: '#28a745', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontSize: '16px' }}>
+                    Register
+                </button>
+            </form>
+            <p style={{ marginTop: '15px' }}>
+                Already have an account? <Link to="/login">Login</Link>
+            </p>
+        </div>
+    );
+};
+
+export default Register;
+

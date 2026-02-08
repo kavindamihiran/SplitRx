@@ -1,0 +1,74 @@
+sh
+#!/bin/bash
+set -e
+# Configuration
+NEW_USER="deploy"
+HOST_IP="178.128.98.3"
+echo ">>> Starting Secure Server Setup for $HOST_IP..."
+# 1. Update System
+echo ">>> Updating system packages..."
+apt-get update && apt-get upgrade -y
+# 2. Install Dependencies
+echo ">>> Installing dependencies..."
+apt-get install -y curl git ufw fail2ban
+# 3. Create Deploy User
+if id "$NEW_USER" &>/dev/null; then
+    echo ">>> User $NEW_USER already exists."
+else
+    echo ">>> Creating user $NEW_USER..."
+    adduser --disabled-password --gecos "" $NEW_USER
+    usermod -aG sudo $NEW_USER
+    
+    # Copy SSH keys from root to new user
+    mkdir -p /home/$NEW_USER/.ssh
+    cp /root/.ssh/authorized_keys /home/$NEW_USER/.ssh/
+    chown -R $NEW_USER:$NEW_USER /home/$NEW_USER/.ssh
+    chmod 700 /home/$NEW_USER/.ssh
+    chmod 600 /home/$NEW_USER/.ssh/authorized_keys
+    echo ">>> User $NEW_USER created and SSH keys copied."
+fi
+# 4. Firewall Setup (UFW)
+echo ">>> Configuring Firewall (UFW)..."
+ufw default deny incoming
+ufw default allow outgoing
+ufw allow ssh
+ufw allow http
+ufw allow https
+# Explicitly deny database port from outside (redundant with default deny, but good practice)
+ufw deny 5432
+ufw deny 25060
+echo "y" | ufw enable
+echo ">>> Firewall active."
+# 5. Install Docker & Docker Compose
+if ! command -v docker &> /dev/null; then
+    echo ">>> Installing Docker..."
+    curl -fsSL https://get.docker.com -o get-docker.sh
+    sh get-docker.sh
+    rm get-docker.sh
+    usermod -aG docker $NEW_USER
+    echo ">>> Docker installed."
+else
+    echo ">>> Docker already installed."
+fi
+# 6. SSH Hardening (Modified for Password Auth)
+echo ">>> Configuring SSH..."
+# Backup config
+cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak
+# Disable Root Login (Still important!)
+sed -i 's/^#PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+sed -i 's/^PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+# Enable Password Authentication (User Requested)
+sed -i 's/^#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+sed -i 's/^PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+# Restart SSH
+systemctl restart ssh
+echo ">>> SSH Configured (Root login disabled, Password auth ENABLED)."
+# 7. Set Password for Deploy User
+echo ">>> Setting password for $NEW_USER..."
+echo "Please enter the password for the '$NEW_USER' user:"
+passwd $NEW_USER
+# 8. Create App Directory
+mkdir -p /home/$NEW_USER/app
+chown $NEW_USER:$NEW_USER /home/$NEW_USER/app
+echo ">>> Setup Complete!"
+echo ">>> You can now log in as: ssh $NEW_USER@$HOST_IP (using the password you just set)"
