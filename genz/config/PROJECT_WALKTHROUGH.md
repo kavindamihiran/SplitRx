@@ -11,34 +11,38 @@ SplitRx is a **tamper-proof prescription management system**. It uses military-g
 
 **Why did we build it?**
 Traditional e-prescription systems are vulnerable to:
+
 1.  **Data Breaches:** Hackers stealing patient data.
 2.  **Insider Threats:** Admins changing logs to cover up mistakes.
 3.  **Prescription Fraud:** Fake prescriptions being created or reused.
 
 **SplitRx Solution:**
--   **Encryption:** Even if hackers get the database, they only see gibberish.
--   **Digital Signatures:** Doctors "sign" every Rx; if a single pixel changes, the signature breaks.
--   **Immutable Audit:** Every action is linked to the previous one (like Bitcoin). You can't delete a log without breaking the whole chain.
+
+- **Encryption:** Even if hackers get the database, they only see gibberish.
+- **Digital Signatures:** Doctors "sign" every Rx; if a single pixel changes, the signature breaks.
+- **Immutable Audit:** Every action is linked to the previous one (like Bitcoin). You can't delete a log without breaking the whole chain.
 
 ---
 
 ## 🏗️ 2. The Architecture (High Level)
 
 ### The Stack
--   **Frontend:** Next.js 16 (React) + Tailwind CSS + Lucide Icons.
--   **Backend:** Node.js + Express + TypeScript.
--   **Database:** PostgreSQL (Relation data + JSONB for logs).
--   **Security:** Native Node.js `crypto` module (No 3rd party black boxes).
+
+- **Frontend:** Next.js 16 (React) + Tailwind CSS + Lucide Icons.
+- **Backend:** Node.js + Express + TypeScript.
+- **Database:** PostgreSQL (Relation data + JSONB for logs).
+- **Security:** Native Node.js `crypto` module (No 3rd party black boxes).
 
 ### The Flow
+
 1.  **Client (Frontend)** sends data to **API**.
 2.  **API** validates data (Zod schemas).
 3.  **Processing:**
-    -   **Sign:** Doctor's private key signs the data.
-    -   **Encrypt:** System encrypts the payload.
-    -   **Hash:** System calculates unique fingerprint.
+    - **Sign:** Doctor's private key signs the data.
+    - **Encrypt:** System encrypts the payload.
+    - **Hash:** System calculates unique fingerprint.
 4.  **Storage:** Encrypted data goes to SQL DB.
-5.  **Audit:** Action is logged with a hash linking to the *previous* log entry.
+5.  **Audit:** Action is logged with a hash linking to the _previous_ log entry.
 
 ---
 
@@ -47,57 +51,63 @@ Traditional e-prescription systems are vulnerable to:
 Judges love technical depth. Memorize these 3 pillars.
 
 ### Pillar 1: Encryption (Confidentiality)
-*File:* `backend/src/crypto/encryption.ts`
 
--   **Algorithm:** **AES-256-GCM**.
-    -   **AES-256:** The industry standard. Unbreakable by brute force.
-    -   **GCM (Galois/Counter Mode):** Provides both *encryption* AND *integrity*. If someone messes with the ciphertext, decryption fails instantly.
--   **Key Management:** We use a **Master Key** + **Salt** to derive session keys. We never store the master key plainly in the code.
+_File:_ `backend/src/crypto/encryption.ts`
+
+- **Algorithm:** **AES-256-GCM**.
+  - **AES-256:** The industry standard. Unbreakable by brute force.
+  - **GCM (Galois/Counter Mode):** Provides both _encryption_ AND _integrity_. If someone messes with the ciphertext, decryption fails instantly.
+- **Key Management:** We use a **Master Key** + **Salt** to derive session keys. We never store the master key plainly in the code.
 
 ### Pillar 2: Digital Signatures (Authenticity)
-*File:* `backend/src/crypto/signing.ts`
 
--   **Algorithm:** **RSA-SHA256**.
--   **How it works:**
-    1.  Doctor has a **Private Key** (kept in secure vault, decrypted only for signing).
-    2.  Doctor "Signs" the prescription hash.
-    3.  Pharmacist has the **Public Key**. They can verify the signature but cannot forge it.
--   **Why?** Non-repudiation. A doctor cannot claim "I didn't write that" because only their key could have signed it.
+_File:_ `backend/src/crypto/signing.ts`
+
+- **Algorithm:** **RSA-SHA256**.
+- **How it works:**
+  1.  Doctor has a **Private Key** (kept in secure vault, decrypted only for signing).
+  2.  Doctor "Signs" the prescription hash.
+  3.  Pharmacist has the **Public Key**. They can verify the signature but cannot forge it.
+- **Why?** Non-repudiation. A doctor cannot claim "I didn't write that" because only their key could have signed it.
 
 ### Pillar 3: Immutable Audit Log (Integrity)
-*File:* `backend/src/modules/audit/audit.service.ts`
 
--   **The "Blockchain" Concept:**
-    -   Every log entry contains a `previous_hash` pointing to the entry before it.
-    -   `EntryHash = SHA256(Timestamp + Actor + Action + PreviousHash)`
--   **Why is it tamper-proof?**
-    -   If an attacker deletes Row #50, Row #51's `previous_hash` won't match anymore. The chain is broken.
-    -   The `verifyChainIntegrity()` function runs this check over the whole table.
+_File:_ `backend/src/modules/audit/audit.service.ts`
+
+- **The "Blockchain" Concept:**
+  - Every log entry contains a `previous_hash` pointing to the entry before it.
+  - `EntryHash = SHA256(Timestamp + Actor + Action + PreviousHash)`
+- **Why is it tamper-proof?**
+  - If an attacker deletes Row #50, Row #51's `previous_hash` won't match anymore. The chain is broken.
+  - The `verifyChainIntegrity()` function runs this check over the whole table.
 
 ---
 
 ## 🩺 4. Core Workflows (Step-by-Step)
 
 ### A. Doctor Writes Prescription
+
 1.  **Input:** Doctor enters "Amoxicillin, 500mg".
 2.  **Hashing:** Backend creates a SHA-256 hash of this data.
 3.  **Signing:** Backend decrypts Doctor's Private Key -> Signs the Hash.
-4.  **Encryption:** Backend encrypts the *actual text* (diagnosis/meds).
+4.  **Encryption:** Backend encrypts the _actual text_ (diagnosis/meds).
 5.  **Storage:** DB stores: `EncryptedPayload`, `DoctorSignature`, `PayloadHash`.
-    *   *Note: The DB admin acts like they are blind. They see the record but valid data is invisible.*
+    - _Note: The DB admin acts like they are blind. They see the record but valid data is invisible._
 
 ### B. Patient Views Prescription
+
 1.  **Auth:** Patient logs in (JWT Token).
 2.  **Request:** "Get my prescriptions."
 3.  **Decryption:** Server sees user is authorized -> Decrypts payload -> Sends JSON to frontend.
 4.  **Verification (Frontend):** Patient sees "Active" status and the integrity hash.
 
 ### C. Pharmacist Dispenses
+
 1.  **Scan:** Pharmacist scans patient's QR code.
 2.  **QR Data:** Contains `PrescriptionID` + `PayloadHash`.
 3.  **Verification:** Backend fetches the record.
-    -   Checks: Does `StoredHash` == `QRHash`? (Prevents QR tampering)
-    -   Checks: Does `Signature` match `DoctorPublicKey`? (Prevents DB tampering)
+    - Checks: Does `StoredHash` == `QRHash`? (Prevents QR tampering)
+    - Checks: Does `Signature` match `DoctorPublicKey`? (Prevents DB tampering)
 4.  **Action:** If valid, marks as "Dispensed". Logs to audit trail.
 
 ---
@@ -122,12 +132,57 @@ Judges love technical depth. Memorize these 3 pillars.
 ---
 
 ## 🛠️ 6. Key Files to Show
+
 If asked to "Show me the code," navigate here:
 
 1.  **"Show me the Security":** `backend/src/crypto/encryption.ts`
 2.  **"Show me the Log Chain":** `backend/src/modules/audit/audit.service.ts` (specifically `log` and `verifyChainIntegrity` methods).
 3.  **"Show me the Data Model":** `database/init.sql` (Point out `encrypted_payload` and `previous_hash` columns).
+4.  **"Show me the Deployment":** `CI/CD/docker-compose.prod.yml` and `CI/CD/deploy.sh`.
+5.  **"Show me the Middleware":** `backend/src/middleware/` (auth, rate limiting, adaptive auth, input validation).
 
 ---
 
-*Good luck! You have built a system that is more secure than most real-world hospital apps.*
+## 📁 7. Full Project Structure
+
+```
+SplitRx/
+├── backend/                 # Express.js API server
+│   ├── src/
+│   │   ├── app.ts           # Express app setup (Helmet, CORS, middleware)
+│   │   ├── server.ts        # Server entry point
+│   │   ├── config/          # database.ts, security.ts
+│   │   ├── crypto/          # encryption.ts (AES-256-GCM), hashing.ts (bcrypt), signing.ts (RSA)
+│   │   ├── middleware/      # auth, adaptiveAuth, rateLimiter, inputValidator, errorHandler
+│   │   ├── modules/
+│   │   │   ├── admin/       # Admin routes
+│   │   │   ├── audit/       # Audit service (hash-chain) & routes
+│   │   │   ├── auth/        # Auth controller, service & routes
+│   │   │   ├── consent/     # Patient consent / Right to Erasure
+│   │   │   ├── dispensing/  # Pharmacist dispensing verification
+│   │   │   └── prescription/# Prescription CRUD & signing
+│   │   ├── routes/          # Central route index
+│   │   ├── scripts/         # admin.seed, init-db, reset_password, etc.
+│   │   └── utils/           # logger.ts
+│   └── scripts/             # fix_audit_integrity, kill_connections, test-db
+├── frontend/                # Next.js 16 (App Router)
+│   └── src/
+│       ├── app/             # Pages: (auth)/login, (auth)/register, dashboard, admin
+│       ├── components/      # doctor/, patient/, pharmacist/, auth/, common/
+│       ├── context/         # AuthContext.tsx
+│       └── services/        # api.ts (Axios client)
+├── database/                # init.sql schema
+├── CI/CD/                   # Docker Compose, deploy.sh, env scripts
+├── nginx/                   # Reverse proxy (default.conf, Dockerfile)
+├── genz/                    # Competition materials & config
+├── README.md                # Project overview
+├── SECURITY.md              # 8-layer security architecture
+├── TECH_STACK.md            # Technical stack overview
+└── USER_GUIDE.md            # User manual for all roles
+```
+
+---
+
+_Good luck! You have built a system that is more secure than most real-world hospital apps._
+
+_Last updated: February 26, 2026_

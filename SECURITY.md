@@ -7,6 +7,7 @@ This document explains all the security features in SplitRx in a way that anyone
 ---
 
 ## Table of Contents
+
 1. [Security Overview](#security-overview)
 2. [Layer 1: Security Headers (Helmet)](#layer-1-security-headers-helmet)
 3. [Layer 2: Rate Limiting](#layer-2-rate-limiting)
@@ -65,73 +66,79 @@ SplitRx uses **8 layers of security** to protect sensitive medical data:
 ## Layer 1: Security Headers (Helmet)
 
 ### 🎯 Simple Explanation
+
 Imagine your browser is a house. Security headers are like installing:
+
 - **Locks on all doors** (prevents unauthorized access)
 - **Security cameras** (monitors suspicious activity)
 - **Window bars** (blocks break-in attempts)
 
 ### 🛡️ What It Protects Against
 
-| Attack | Without Protection | With Helmet |
-|--------|-------------------|-------------|
-| **XSS (Cross-Site Scripting)** | Hackers inject malicious scripts | ❌ Blocked |
-| **Clickjacking** | Hidden buttons trick you into clicking | ❌ Blocked |
-| **MIME Sniffing** | Browser misinterprets dangerous files | ❌ Blocked |
-| **Protocol Downgrade** | Forces insecure HTTP connection | ❌ Blocked |
+| Attack                         | Without Protection                     | With Helmet |
+| ------------------------------ | -------------------------------------- | ----------- |
+| **XSS (Cross-Site Scripting)** | Hackers inject malicious scripts       | ❌ Blocked  |
+| **Clickjacking**               | Hidden buttons trick you into clicking | ❌ Blocked  |
+| **MIME Sniffing**              | Browser misinterprets dangerous files  | ❌ Blocked  |
+| **Protocol Downgrade**         | Forces insecure HTTP connection        | ❌ Blocked  |
 
 ### 💻 Technical Implementation
 
 **File:** `backend/src/app.ts`
 
 ```typescript
-app.use(helmet({
+app.use(
+  helmet({
     // Content Security Policy - controls what can run on the page
     contentSecurityPolicy: {
-        directives: {
-            defaultSrc: ["'self'"],   // Only load from our domain
-            scriptSrc: ["'self'"],    // Only run our scripts
-            styleSrc: ["'self'", "'unsafe-inline'"],
-            imgSrc: ["'self'", "data:"],
-            frameSrc: ["'none'"],     // No iframes (prevents clickjacking)
-            objectSrc: ["'none'"],    // No plugins (Flash, Java)
-        },
+      directives: {
+        defaultSrc: ["'self'"], // Only load from our domain
+        scriptSrc: ["'self'"], // Only run our scripts
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        imgSrc: ["'self'", "data:"],
+        frameSrc: ["'none'"], // No iframes (prevents clickjacking)
+        objectSrc: ["'none'"], // No plugins (Flash, Java)
+      },
     },
     // HTTP Strict Transport Security
     hsts: {
-        maxAge: 31536000,             // Force HTTPS for 1 year
-        includeSubDomains: true,
-        preload: true,
+      maxAge: 31536000, // Force HTTPS for 1 year
+      includeSubDomains: true,
+      preload: true,
     },
-}));
+  }),
+);
 ```
 
 ### 📊 Headers Set by Helmet
 
-| Header | Value | Purpose |
-|--------|-------|---------|
-| `Content-Security-Policy` | `default-src 'self'...` | Controls resource loading |
-| `Strict-Transport-Security` | `max-age=31536000` | Forces HTTPS |
-| `X-Frame-Options` | `DENY` | Prevents clickjacking |
-| `X-Content-Type-Options` | `nosniff` | Prevents MIME confusion |
-| `X-XSS-Protection` | `1; mode=block` | Extra XSS protection |
+| Header                      | Value                   | Purpose                   |
+| --------------------------- | ----------------------- | ------------------------- |
+| `Content-Security-Policy`   | `default-src 'self'...` | Controls resource loading |
+| `Strict-Transport-Security` | `max-age=31536000`      | Forces HTTPS              |
+| `X-Frame-Options`           | `DENY`                  | Prevents clickjacking     |
+| `X-Content-Type-Options`    | `nosniff`               | Prevents MIME confusion   |
+| `X-XSS-Protection`          | `1; mode=block`         | Extra XSS protection      |
 
 ---
 
 ## Layer 2: Rate Limiting
 
 ### 🎯 Simple Explanation
+
 Imagine a bouncer at a club who counts how many times you try to enter. If you try too many times in 15 minutes, you're temporarily banned. This stops:
+
 - **Hackers trying millions of passwords**
 - **Bots overwhelming the server**
 - **Automated attacks**
 
 ### 🚦 Rate Limits in SplitRx
 
-| Endpoint | Max Requests | Time Window | Purpose |
-|----------|--------------|-------------|---------|
-| **All API** | 100 | 15 minutes | General protection |
-| **Login/Register** | 5 | 15 minutes | Prevents password guessing |
-| **Create Prescription** | 50 | 1 hour | Prevents abuse |
+| Endpoint                | Max Requests | Time Window | Purpose                    |
+| ----------------------- | ------------ | ----------- | -------------------------- |
+| **All API**             | 100          | 15 minutes  | General protection         |
+| **Login/Register**      | 5            | 15 minutes  | Prevents password guessing |
+| **Create Prescription** | 50           | 1 hour      | Prevents abuse             |
 
 ### 💻 Technical Implementation
 
@@ -140,13 +147,13 @@ Imagine a bouncer at a club who counts how many times you try to enter. If you t
 ```typescript
 // Login protection - only 5 attempts allowed
 export const authLimiter = rateLimit({
-    windowMs: 15 * 60 * 1000,  // 15 minutes
-    max: 5,                     // 5 requests max
-    skipSuccessfulRequests: true, // ✨ Only counts FAILED attempts!
-    message: {
-        error: 'Too many login attempts. Account temporarily locked.',
-        code: 'AUTH_RATE_LIMITED',
-    },
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // 5 requests max
+  skipSuccessfulRequests: true, // ✨ Only counts FAILED attempts!
+  message: {
+    error: "Too many login attempts. Account temporarily locked.",
+    code: "AUTH_RATE_LIMITED",
+  },
 });
 ```
 
@@ -170,40 +177,46 @@ Attempt 7 ✅ Correct password → Counter: 0 (successful login resets)
 ## Layer 3: Input Validation
 
 ### 🎯 Simple Explanation
+
 Never trust user input! Imagine you ask someone their name and they say:
+
 ```
 Robert'); DROP TABLE users;--
 ```
+
 This is an SQL injection attack. Input validation checks **everything** before using it.
 
 ### ✅ What Gets Validated
 
 **File:** `backend/src/middleware/inputValidator.ts`
 
-| Field | Rules | Example |
-|-------|-------|---------|
-| **Email** | Valid format, max 255 chars | `doctor@hospital.com` ✅ |
-| **Password** | 8+ chars, uppercase, lowercase, number, special | `Pass@123` ✅ |
-| **Name** | Letters, spaces, hyphens only | `Dr. O'Brien` ✅ |
-| **UUID** | Valid UUID format | `123e4567-e89b-...` ✅ |
+| Field        | Rules                                           | Example                  |
+| ------------ | ----------------------------------------------- | ------------------------ |
+| **Email**    | Valid format, max 255 chars                     | `doctor@hospital.com` ✅ |
+| **Password** | 8+ chars, uppercase, lowercase, number, special | `Pass@123` ✅            |
+| **Name**     | Letters, spaces, hyphens only                   | `Dr. O'Brien` ✅         |
+| **UUID**     | Valid UUID format                               | `123e4567-e89b-...` ✅   |
 
 ### 💻 Technical Implementation
 
 ```typescript
 // Password must be VERY strong
 export const registerSchema = z.object({
-    email: z.string().email().max(255),
-    password: z.string()
-        .min(8, 'Password must be at least 8 characters')
-        .max(128)
-        .regex(/[A-Z]/, 'Must contain uppercase letter')
-        .regex(/[a-z]/, 'Must contain lowercase letter')
-        .regex(/[0-9]/, 'Must contain number')
-        .regex(/[^A-Za-z0-9]/, 'Must contain special character'),
-    full_name: z.string()
-        .min(1).max(100)
-        .regex(/^[a-zA-Z\s'-]+$/, 'Invalid characters in name'),
-    role: z.enum(['doctor', 'patient', 'pharmacist']),
+  email: z.string().email().max(255),
+  password: z
+    .string()
+    .min(8, "Password must be at least 8 characters")
+    .max(128)
+    .regex(/[A-Z]/, "Must contain uppercase letter")
+    .regex(/[a-z]/, "Must contain lowercase letter")
+    .regex(/[0-9]/, "Must contain number")
+    .regex(/[^A-Za-z0-9]/, "Must contain special character"),
+  full_name: z
+    .string()
+    .min(1)
+    .max(100)
+    .regex(/^[a-zA-Z\s'-]+$/, "Invalid characters in name"),
+  role: z.enum(["doctor", "patient", "pharmacist"]),
 });
 ```
 
@@ -216,8 +229,8 @@ SplitRx uses **parameterized queries** - your input can NEVER become SQL code:
 const query = `SELECT * FROM users WHERE email = '${userInput}'`;
 
 // ✅ SAFE (what SplitRx does)
-const query = 'SELECT * FROM users WHERE email = $1';
-pool.query(query, [userInput]);  // Input is just data, never code
+const query = "SELECT * FROM users WHERE email = $1";
+pool.query(query, [userInput]); // Input is just data, never code
 ```
 
 ---
@@ -225,6 +238,7 @@ pool.query(query, [userInput]);  // Input is just data, never code
 ## Layer 4: Password Security
 
 ### 🎯 Simple Explanation
+
 Your password is **never stored**. Instead, we store a "fingerprint" of it using bcrypt:
 
 ```
@@ -253,10 +267,10 @@ static async verifyPassword(password: string, hash: string): Promise<boolean> {
 ### ⏱️ Why 12 Rounds?
 
 | Rounds | Time to Hash | Guesses/Second (Attacker) |
-|--------|--------------|---------------------------|
-| 10 | ~100ms | 10 |
-| **12** | **~300ms** | **3** |
-| 14 | ~1 second | 1 |
+| ------ | ------------ | ------------------------- |
+| 10     | ~100ms       | 10                        |
+| **12** | **~300ms**   | **3**                     |
+| 14     | ~1 second    | 1                         |
 
 More rounds = slower for attackers to guess passwords!
 
@@ -266,7 +280,7 @@ After 5 failed attempts, the account is locked for 30 minutes:
 
 ```typescript
 if (newAttempts >= 5) {
-    lockUntil = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
+  lockUntil = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
 }
 ```
 
@@ -275,6 +289,7 @@ if (newAttempts >= 5) {
 ## Layer 5: Data Encryption
 
 ### 🎯 Simple Explanation
+
 All prescription data is **encrypted** before storage. It's like putting your medical records in a safe that only YOU have the combination to.
 
 ```
@@ -290,11 +305,11 @@ What Doctor Types:          What's Stored in Database:
 
 **File:** `backend/src/crypto/encryption.ts`
 
-| Component | What It Means |
-|-----------|---------------|
-| **AES** | Advanced Encryption Standard (US government approved) |
-| **256** | 256-bit key (2^256 possible combinations) |
-| **GCM** | Galois/Counter Mode (detects tampering!) |
+| Component | What It Means                                         |
+| --------- | ----------------------------------------------------- |
+| **AES**   | Advanced Encryption Standard (US government approved) |
+| **256**   | 256-bit key (2^256 possible combinations)             |
+| **GCM**   | Galois/Counter Mode (detects tampering!)              |
 
 ### 💻 Technical Implementation
 
@@ -302,17 +317,17 @@ What Doctor Types:          What's Stored in Database:
 encrypt(plaintext: string): { ciphertext: string; iv: string; tag: string } {
     // 1. Generate random IV (Initialization Vector) for each encryption
     const iv = crypto.randomBytes(16);  // 16 bytes = 128 bits
-    
+
     // 2. Create cipher with our secret key
     const cipher = crypto.createCipheriv('aes-256-gcm', this.masterKey, iv);
-    
+
     // 3. Encrypt the data
     let encrypted = cipher.update(plaintext, 'utf8', 'hex');
     encrypted += cipher.final('hex');
-    
+
     // 4. Get authentication tag (proves data wasn't tampered)
     const tag = cipher.getAuthTag();
-    
+
     return {
         ciphertext: encrypted,
         iv: iv.toString('hex'),
@@ -323,17 +338,18 @@ encrypt(plaintext: string): { ciphertext: string; iv: string; tag: string } {
 
 ### 🛡️ Why Is This Secure?
 
-| Feature | Protection |
-|---------|------------|
-| **256-bit key** | Would take billions of years to crack |
+| Feature                      | Protection                                        |
+| ---------------------------- | ------------------------------------------------- |
+| **256-bit key**              | Would take billions of years to crack             |
 | **Random IV per encryption** | Same text produces different ciphertext each time |
-| **GCM authentication tag** | If anyone modifies the data, decryption fails |
+| **GCM authentication tag**   | If anyone modifies the data, decryption fails     |
 
 ---
 
 ## Layer 6: Digital Signatures
 
 ### 🎯 Simple Explanation
+
 When a doctor writes a prescription, they **sign** it with their private key. It's like signing a check - it proves YOU wrote it and nobody changed it.
 
 ```
@@ -376,30 +392,31 @@ static verify(data: string, signature: string, publicKey: string): boolean {
 
 ### 📜 What Gets Signed?
 
-| Data | Signed? | Why |
-|------|---------|-----|
-| Patient name | ✅ | Ensures correct patient |
-| Medication | ✅ | Prevents drug substitution |
-| Dosage | ✅ | Prevents dose tampering |
-| Expiry date | ✅ | Prevents extension fraud |
-| Doctor ID | ✅ | Proves doctor wrote it |
+| Data         | Signed? | Why                        |
+| ------------ | ------- | -------------------------- |
+| Patient name | ✅      | Ensures correct patient    |
+| Medication   | ✅      | Prevents drug substitution |
+| Dosage       | ✅      | Prevents dose tampering    |
+| Expiry date  | ✅      | Prevents extension fraud   |
+| Doctor ID    | ✅      | Proves doctor wrote it     |
 
 ---
 
 ## Layer 7: Audit Logging
 
 ### 🎯 Simple Explanation
+
 Every action in the system is recorded in an **unchangeable logbook**. It's like a flight recorder (black box) for your application - if something goes wrong, we can see exactly what happened.
 
 ### 📝 What Gets Logged
 
-| Event | Details Recorded |
-|-------|------------------|
-| Login success | User ID, IP address, browser, time |
-| Login failure | Attempted email, IP, attempts count |
-| View prescription | Who viewed, whose data, when |
-| Create prescription | Doctor, patient, medication details |
-| Dispense medicine | Pharmacist, prescription ID, verification status |
+| Event               | Details Recorded                                 |
+| ------------------- | ------------------------------------------------ |
+| Login success       | User ID, IP address, browser, time               |
+| Login failure       | Attempted email, IP, attempts count              |
+| View prescription   | Who viewed, whose data, when                     |
+| Create prescription | Doctor, patient, medication details              |
+| Dispense medicine   | Pharmacist, prescription ID, verification status |
 
 ### 🔗 Blockchain-Style Integrity
 
@@ -443,26 +460,27 @@ CREATE TABLE audit_log (
 ## Layer 8: Adaptive Authentication
 
 ### 🎯 Simple Explanation
+
 The system continuously monitors your behavior and calculates a **risk score**. If something seems suspicious (like logging in from a new country at 3 AM), it takes action.
 
 ### 📊 Risk Factors
 
 **File:** `backend/src/middleware/adaptiveAuth.ts`
 
-| Factor | Points | Example |
-|--------|--------|---------|
-| IP address changed | +30 | You're suddenly in Russia |
-| Browser changed | +25 | Chrome → Safari |
-| Unusual hour | +10 | 3 AM login |
-| High activity | +20 | 50+ actions in 5 minutes |
-| Sensitive resource | +15 | Accessing patient records |
+| Factor             | Points | Example                   |
+| ------------------ | ------ | ------------------------- |
+| IP address changed | +30    | You're suddenly in Russia |
+| Browser changed    | +25    | Chrome → Safari           |
+| Unusual hour       | +10    | 3 AM login                |
+| High activity      | +20    | 50+ actions in 5 minutes  |
+| Sensitive resource | +15    | Accessing patient records |
 
 ### 🚨 Risk Thresholds
 
-| Score | Action |
-|-------|--------|
-| 0-49 | ✅ Normal - proceed |
-| 50-79 | ⚠️ Warning - log and monitor |
+| Score  | Action                            |
+| ------ | --------------------------------- |
+| 0-49   | ✅ Normal - proceed               |
+| 50-79  | ⚠️ Warning - log and monitor      |
 | 80-100 | 🚫 Block session - force re-login |
 
 ### 💻 Technical Implementation
@@ -478,12 +496,14 @@ if (riskFactors.sensitiveResource) riskScore += 15;
 
 // Take action based on score
 if (riskScore >= 80) {
-    // BLOCK - Too risky!
-    await pool.query('UPDATE sessions SET is_active = false WHERE id = $1', [session.id]);
-    return res.status(403).json({
-        error: 'Session blocked due to suspicious activity',
-        action: 'RE_AUTHENTICATE'
-    });
+  // BLOCK - Too risky!
+  await pool.query("UPDATE sessions SET is_active = false WHERE id = $1", [
+    session.id,
+  ]);
+  return res.status(403).json({
+    error: "Session blocked due to suspicious activity",
+    action: "RE_AUTHENTICATE",
+  });
 }
 ```
 
@@ -493,16 +513,16 @@ if (riskScore >= 80) {
 
 ### 🏆 Complete Protection Stack
 
-| Layer | Technology | Protects Against |
-|-------|------------|------------------|
-| 1. Headers | Helmet.js | XSS, clickjacking, MIME attacks |
-| 2. Rate Limiting | express-rate-limit | Brute force, DoS |
-| 3. Validation | Zod schemas | SQL injection, bad data |
-| 4. Passwords | bcrypt (12 rounds) | Password cracking |
-| 5. Encryption | AES-256-GCM | Data theft |
-| 6. Signatures | RSA-SHA256 | Prescription forgery |
-| 7. Audit Logs | Hash chain | Log tampering |
-| 8. Adaptive Auth | Risk scoring | Account takeover |
+| Layer            | Technology         | Protects Against                |
+| ---------------- | ------------------ | ------------------------------- |
+| 1. Headers       | Helmet.js          | XSS, clickjacking, MIME attacks |
+| 2. Rate Limiting | express-rate-limit | Brute force, DoS                |
+| 3. Validation    | Zod schemas        | SQL injection, bad data         |
+| 4. Passwords     | bcrypt (12 rounds) | Password cracking               |
+| 5. Encryption    | AES-256-GCM        | Data theft                      |
+| 6. Signatures    | RSA-SHA256         | Prescription forgery            |
+| 7. Audit Logs    | Hash chain         | Log tampering                   |
+| 8. Adaptive Auth | Risk scoring       | Account takeover                |
 
 ### 🔐 Data Protection Flow
 
@@ -548,33 +568,33 @@ User Input
 
 ```typescript
 export const SECURITY_CONFIG = {
-    jwt: {
-        accessTokenExpiry: '15m',      // Short-lived tokens
-        refreshTokenExpiry: '7d',
-    },
-    rateLimit: {
-        windowMs: 15 * 60 * 1000,      // 15 minute windows
-        maxRequests: 100,
-        authMaxRequests: 5,
-    },
-    password: {
-        saltRounds: 12,                 // bcrypt cost factor
-        minLength: 8,
-    },
-    encryption: {
-        algorithm: 'aes-256-gcm',
-    },
-    session: {
-        maxFailedAttempts: 5,
-        lockoutDuration: 30 * 60 * 1000, // 30 minutes
-    },
-    riskThresholds: {
-        warning: 50,
-        critical: 80,
-    }
+  jwt: {
+    accessTokenExpiry: "15m", // Short-lived tokens
+    refreshTokenExpiry: "7d",
+  },
+  rateLimit: {
+    windowMs: 15 * 60 * 1000, // 15 minute windows
+    maxRequests: 100,
+    authMaxRequests: 5,
+  },
+  password: {
+    saltRounds: 12, // bcrypt cost factor
+    minLength: 8,
+  },
+  encryption: {
+    algorithm: "aes-256-gcm",
+  },
+  session: {
+    maxFailedAttempts: 5,
+    lockoutDuration: 30 * 60 * 1000, // 30 minutes
+  },
+  riskThresholds: {
+    warning: 50,
+    critical: 80,
+  },
 };
 ```
 
 ---
 
-*This document was generated as part of the SplitRx security audit. Last updated: February 8, 2026*
+_This document was generated as part of the SplitRx security audit. Last updated: February 26, 2026_
